@@ -1,87 +1,81 @@
-# agentic-fallback
+# cloud-agent
 
-A cloud-to-edge agentic robot system with defined behavior across complete loss of the reasoning tier.
+This is the **cloud-tier half** of a two-repo capstone project. If you only read one file in this repo, make it this one -- everything else assumes you've read this first.
 
-## The problem
+## The two-repo split (read this first)
 
-Agentic robot systems increasingly run their reasoning in the cloud for capability and cost. Existing cloud-edge robotics work tolerates latency and recovers from individual server failures, but treats a fully unreachable cloud as out of scope. This leaves no defined behavior when the link is gone: the robot either stops and waits, or acts unpredictably.
+The full project ("Resilient Cloud-to-Edge Agentic Robotic System," ECE 257/258, Lehigh University, 2026-2027) has two codebases that talk to each other over a network:
 
-This matters for robots in environments with spotty connectivity—warehouse floors with signal dead zones, field equipment at remote sites, educational makerspaces with unreliable WiFi. When the cloud becomes unreachable mid-task, the robot should gracefully degrade rather than freeze or fail unsafely.
-
-## What this does
-
-A cloud-hosted reasoning agent communicates with a local agent on an NVIDIA Jetson Orin Nano. When the link is lost:
-
-1. **Fault detection** (target: 1000 ms) — heartbeat-based detection with a bounded timeout
-2. **Controlled stop** — the robot completes any in-flight atomic action, then moves to a safe configuration
-3. **Local autonomy** — a restricted set of pre-authorized recipes can execute locally without cloud reasoning
-4. **Durable queuing** — deferred actions are persisted with timestamps; expired or invalid actions are dropped on reconnect
-5. **State reconciliation** — on reconnect, the cloud model and local agent align without duplicating or dropping actions
-
-The system is model-agnostic: swap the cloud model, the local model, or the target hardware without modifying the robot's control code.
-
-## Architecture
-
-**Cloud tier** (persistent service, any host)  
-Runs a reasoning agent. Communicates over the A2A (Agent-to-Agent) protocol.
-
-**Local tier** (NVIDIA Jetson Orin Nano, ROS 2 Humble)  
-Runs a local model and exposes hardware capability as MCP (Model Context Protocol) tools on ROS 2. Safety interlocks are enforced here, not in agent reasoning: every tool call is validated against pose constraints, ordering preconditions, speed limits, and safety invariants before motion.
-
-**Hardware** (demonstration platform)  
-A 6-DOF manipulator operates a fixtured benchtop control panel (3 toggle switches, 3 buttons). The panel state is read directly over GPIO. Eight named poses stand in for a vocabulary of skills. This is a stand-in for industrial equipment with no network interface.
-
-## Key performance targets
-
-| Spec | Threshold | Target |
+| | This repo (`cloud-agent`) | The other repo (edge agent, not here) |
 |---|---|---|
-| End-to-end command latency | 5000 ms | 2500 ms |
-| Fault detection + safe stop | 1500 ms | 1000 ms |
-| Recipe sequence accuracy | 80% | 90% |
-| Reconciliation correctness | 95% | 100% |
-| Interlock enforcement | 100% | 100% |
+| Runs on | An always-on cloud host | An NVIDIA Jetson Orin Nano, bolted to the robot |
+| Job | Turn a natural-language command into an ordered sequence of robot actions | Receive that sequence, check it's safe, actually move the robot arm via ROS 2 |
+| Talks to the other side via | A2A (Agent-to-Agent) protocol | A2A (Agent-to-Agent) protocol |
+
+A contributor working only on the edge/hardware side does not need to run or read this repository's code. The one thing that matters across the boundary is the A2A "contract" -- the shape of the messages this repo sends -- which will be documented here once it exists (it doesn't yet; see Status below).
+
+## What this code does, in plain English
+
+1. A person types a command in plain English (e.g. "flip switch 2 and press button 1").
+2. This cloud agent sends that text to an LLM (currently Google's Gemini) and gets back a plan: an ordered list of robot actions from a fixed, pre-approved vocabulary (named poses like `switch_1`, `button_2`, `home`, `safe_retract` -- the robot cannot be told to do anything outside this list).
+3. That plan gets sent to the Jetson over A2A. The Jetson is the one that actually validates and executes it -- this repo does not talk to the robot directly, and does not trust itself to be the final safety check.
 
 ## Status
 
-Demonstration expected Nov 20, 2026. Code released TBD. Repository in active development.
+Early scaffolding only. Right now this repo can: load API keys/config from a `.env` file, and send one test message to Gemini to confirm the whole chain works. It does **not** yet: talk to the edge repo over A2A, generate real action plans, or do anything with an actual robot. Those come later as the two-semester schedule progresses -- see the project proposal for the full timeline.
 
-## Getting started
+## Repository layout
 
-**Prerequisites**
-- NVIDIA Jetson Orin Nano (8 GB) or compatible edge device
-- ROS 2 Humble
-- Python 3.10+
-- A cloud host for the reasoning agent (any small always-on service; no serverless)
-
-**Installation**
-
-```bash
-git clone https://github.com/[user]/agentic-fallback
-cd agentic-fallback
-pip install -r requirements.txt
+```
+src/cloud_agent/
+    __init__.py       Package docstring -- a short version of this README, read by tools that inspect the package.
+    config.py          Reads .env into a validated Settings object (which LLM provider/model to use, API keys).
+    models.py           Builds a LangChain chat model from Settings. This is the ONE place that knows about
+                        specific LLM vendor SDKs -- everything else in the codebase should call get_chat_model()
+                        instead of importing e.g. langchain_google_genai directly. That's what "model-agnostic"
+                        means in practice: swapping providers later touches this file and .env, nothing else.
+    smoke_test.py       A manual script (not an automated test) that proves .env -> Settings -> get_chat_model()
+                        -> a real Gemini response all works. Run it after setting up your .env file.
+notebooks/ (if present) Scratch exploration of LangChain/LangGraph/A2A/MCP tutorials -- not part of the shipped
+                        agent, safe to ignore.
+pyproject.toml          Project metadata and dependency list, managed by uv (see "Setup" below).
+.env.example             Template for the .env file you need to create locally. .env itself is git-ignored --
+                        never commit real API keys.
 ```
 
-**Run the demo**  
-(Instructions TBD—repository in active development)
+## Setup
 
-## Implementation notes
+This project uses [uv](https://docs.astral.sh/uv/) to manage the Python environment and dependencies -- you don't need to manually create a virtualenv or pip install anything.
 
-- **Recipes** are ordered sequences of named primitives with preconditions. Sequence dependence is intentional: it makes the fallback behavior substantive (outages mid-recipe leave the machine half-configured, which is the problem we solve).
-- **Safety enforcement** lives in the MCP tool layer, not the agent. This decouples safety from model reasoning and ensures the interlock holds even under local autonomy.
-- **Local model** emits only named poses, never raw numeric control. This constrains the action space and makes authorization tractable.
-- **Perception and reasoning run as separate processes** to avoid GPU contention on resource-constrained edge hardware.
+1. Install uv if you don't have it (see the link above).
+2. Clone this repo and `cd` into it.
+3. Install dependencies:
+   ```bash
+   uv sync
+   ```
 
-## Contributing
+4. Create your local config file:
+   ```bash
+   cp .env.example .env
+   ```
 
-(Guidelines TBD)
+5. Get a free Google AI Studio API key from https://aistudio.google.com/apikey and paste it into `.env` as `GOOGLE_API_KEY=...`.
 
-## License
+6. Confirm everything's wired up correctly:
+   ```bash
+   uv run python -m cloud_agent.smoke_test
+   ```
 
-(TBD)
+   You should see `Model replied:` followed by a short message from Gemini. If instead you see a `ValueError` about a missing API key, double check step 5.
 
-## Team
+## Why Gemini?
 
-Avery Nudell-Cook (cloud agent, MCP tools, state machine, queue/reconciliation)  
-Ali Mohrez (hardware, Jetson, ROS 2 integration)
+Google AI Studio has a genuinely free tier, which matters for a two-person capstone budget. Nothing in the design is Gemini-specific -- see `models.py` for how a second provider would be added later, per the project's "model-agnostic" requirement.
 
-ECE 257/258 Senior Design Capstone, Lehigh University, 2026–2027.
+## Adding a new dependency
+
+```bash
+uv add <package-name>
+```
+
+This updates `pyproject.toml` and `uv.lock` automatically -- commit both files after running it.

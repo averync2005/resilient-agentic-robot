@@ -1,0 +1,21 @@
+[project]
+name = "cloud-agent"
+version = "0.1.0"
+description = "Cloud-tier reasoning agent for the Resilient Cloud-to-Edge Agentic Robotic System capstone project. Talks to the edge-tier local agent (separate repo, runs on the Jetson Orin Nano) over A2A."
+readme = "README.md"
+authors = [
+    { name = "Avery Nudell-Cook", email = "averync2005@users.noreply.github.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "langchain>=1.4.1",
+    "langchain-google-genai>=4.4.0",
+    "langgraph>=1.2.11",
+    "pydantic-settings>=2.15.0",
+    "python-a2a>=0.5.10",
+    "python-dotenv>=1.2.3",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.10,<0.13.0"]
+build-backend = "uv_build"
