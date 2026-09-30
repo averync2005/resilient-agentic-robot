@@ -7,7 +7,7 @@ This project is split across two repositories that communicate over the network:
 - It sends that sequence to the edge agent over the A2A (Agent-to-Agent) protocol
 
 - The edge agent is a separate repository, not included here
-- It runs on an NVIDIA Jetson Orin Nano mounted to the physical robot arm
+- It runs on an NVIDIA Jetson Orin Nano connected to the physical robot arm
 - It receives commands from this cloud agent
 - It validates them against safety rules before any hardware moves
 - It executes them via ROS 2
