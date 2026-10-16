@@ -1,7 +1,7 @@
 [project]
 name = "capstone"
 version = "0.1.0"
-description = "Cloud-tier reasoning agent for the Resilient Cloud-to-Edge Agentic Robotic System capstone project. Talks to the edge-tier local agent (separate repo, runs on the Jetson Orin Nano) over A2A."
+description = "Cloud and edge agents for the Resilient Cloud-to-Edge Agentic Robotic System capstone project. A hosted-LLM cloud agent plans robot actions, and a local Gemma 4 edge agent on the Jetson Orin Nano validates and executes them, communicating over A2A."
 readme = "README.md"
 # GitHub: Avery Nudell-Cook (averync2005), Ali Mohrez (Ali-Mohrez)
 # Faculty advisor / repo collaborator: Eric Obeysekare (ero5004)

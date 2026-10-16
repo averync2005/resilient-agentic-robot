@@ -1,21 +1,24 @@
 """
-Cloud-tier agent for the Resilient Cloud-to-Edge Agentic Robotic System
+Cloud and edge agents for the Resilient Cloud-to-Edge Agentic Robotic System
 
-This project is split across two repositories that communicate over the network:
-- This repository (cloud-agent) runs on an always-on cloud host
-- It takes a natural-language command and turns it into an ordered sequence of robot actions
-- It sends that sequence to the edge agent over the A2A (Agent-to-Agent) protocol
+Both tiers live in this package and will communicate over the network via A2A (Agent-to-Agent) protocol
 
-- The edge agent is a separate repository, not included here
-- It runs on an NVIDIA Jetson Orin Nano connected to the physical robot arm
-- It receives commands from this cloud agent
-- It validates them against safety rules before any hardware moves
-- It executes them via ROS 2
+Cloud agent (`cloud_agent.py`):
+- Runs on an always-on cloud host, backed by a hosted LLM (currently Google Gemini)
+- Takes a natural-language command and turns it into an ordered sequence of robot actions
+- Sends that sequence to the edge agent over A2A
+
+Edge agent (`edge_agent.py`):
+- Runs on an NVIDIA Jetson Orin Nano connected to the physical robot arm
+- Backed by Gemma 4 E2B running locally on the Jetson's GPU (keeps working without internet)
+- Receives commands from the cloud agent
+- Validates them against safety rules before any hardware moves
+- Executes them via ROS 2
 
 The cloud agent is not trusted to be the final safety authority:
 - It proposes a plan
 - The edge agent enforces whether that plan is allowed to run
 - This separation is a core design requirement of the project, not an implementation detail
 
-See the top-level README.md for setup instructions and a description of what each module in this package is responsible for.
+See the top-level README.md for setup instructions, current status, and a description of what each module in this package is responsible for.
 """
