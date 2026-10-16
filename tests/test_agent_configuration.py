@@ -11,7 +11,7 @@ Tests for agent_configuration.py's Settings loading and chat-model construction
 # Imports
 # ---------------------------------
 import pytest
-from cloud_agent.agent_configuration import get_settings, get_chat_model
+from capstone.agent_configuration import get_settings, get_chat_model
 
 
 # ---------------------------------

@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.14"
 resolution-markers = [
     "sys_platform == 'win32'",
@@ -240,6 +240,41 @@ wheels = [
 ]
 
 [[package]]
+name = "capstone"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "gradio" },
+    { name = "langchain" },
+    { name = "langchain-google-genai" },
+    { name = "langgraph" },
+    { name = "openai" },
+    { name = "pydantic-settings" },
+    { name = "python-a2a" },
+    { name = "python-dotenv" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "gradio", specifier = ">=6.29.0" },
+    { name = "langchain", specifier = ">=1.4.1" },
+    { name = "langchain-google-genai", specifier = ">=4.4.0" },
+    { name = "langgraph", specifier = ">=1.2.11" },
+    { name = "openai", specifier = ">=3.15.0" },
+    { name = "pydantic-settings", specifier = ">=2.15.0" },
+    { name = "python-a2a", specifier = ">=0.5.10" },
+    { name = "python-dotenv", specifier = ">=1.2.3" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=9.1.1" }]
+
+[[package]]
 name = "certifi"
 version = "2026.7.22"
 source = { registry = "https://pypi.org/simple" }
@@ -409,39 +444,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/c7/0e/7fa0ef50764b67090
 wheels = [
     { url = "https://files.pythonhosted.org/packages/58/50/6c0d534c5f134586a8e1ba4e330569e32f057e33372ae556463212fb4cd3/click-8.5.0-py3-none-any.whl", hash = "sha256:255bc9599cf7748b4b1a446ccc735421bd08a2ae529a8b88597d3de5664ee360", size = 125251, upload-time = "2026-08-26T13:33:12.928Z" },
 ]
-
-[[package]]
-name = "cloud-agent"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "gradio" },
-    { name = "langchain" },
-    { name = "langchain-google-genai" },
-    { name = "langgraph" },
-    { name = "pydantic-settings" },
-    { name = "python-a2a" },
-    { name = "python-dotenv" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "gradio", specifier = ">=6.29.0" },
-    { name = "langchain", specifier = ">=1.4.1" },
-    { name = "langchain-google-genai", specifier = ">=4.4.0" },
-    { name = "langgraph", specifier = ">=1.2.11" },
-    { name = "pydantic-settings", specifier = ">=2.15.0" },
-    { name = "python-a2a", specifier = ">=0.5.10" },
-    { name = "python-dotenv", specifier = ">=1.2.3" },
-]
-
-[package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=9.1.1" }]
 
 [[package]]
 name = "colorama"

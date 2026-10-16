@@ -1,5 +1,5 @@
 """
-Tests for agent.py's graph, web window, and CLI entry points
+Tests for cloud_agent.py's graph, web window, and CLI entry points
 
 - Every graph/model call is mocked - nothing here makes a live network call
 - Env vars (CLOUD_AGENT_DEBUG, LLM_PROVIDER, API_KEY) are set via monkeypatch, never via
@@ -14,7 +14,7 @@ Tests for agent.py's graph, web window, and CLI entry points
 import importlib
 import gradio as gr
 from langchain_core.messages import AIMessage, HumanMessage
-import cloud_agent.agent as agent
+import capstone.cloud_agent as agent
 
 
 # ---------------------------------
@@ -342,7 +342,7 @@ def test_logger_handlers_dont_duplicate_across_reload(monkeypatch):
     process - reloading with CLOUD_AGENT_DEBUG set must not stack a new handler onto the
     shared "cloud_agent" logger each time, or every log line duplicates
 
-    Reloads the real cloud_agent.agent module, rebuilding its graph/demo/etc in place -
+    Reloads the real capstone.cloud_agent module, rebuilding its graph/demo/etc in place -
     keep this isolated from tests that assume a particular agent.graph/agent.demo identity
     """
 

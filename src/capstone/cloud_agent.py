@@ -41,7 +41,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
 from typing_extensions import TypedDict
-from cloud_agent.agent_configuration import get_settings, get_chat_model
+from capstone.agent_configuration import get_settings, get_chat_model
 
 
 # ---------------------------------
@@ -226,7 +226,7 @@ def dev() -> None:
     - Shells out to Gradio's own reload CLI rather than calling demo.launch() directly
     - Watches this file's whole src/ tree, so a change anywhere in the package triggers a reload
     - Sets CLOUD_AGENT_DEBUG for the subprocess it launches, turning on this module's debug logging
-    - Equivalent to running: CLOUD_AGENT_DEBUG=1 uv run gradio src/cloud_agent/agent.py --watch-dirs src
+    - Equivalent to running: CLOUD_AGENT_DEBUG=1 uv run gradio src/capstone/cloud_agent.py --watch-dirs src
     """
 
     agent_file = Path(__file__)
