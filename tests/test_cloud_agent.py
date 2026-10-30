@@ -1,37 +1,38 @@
 """
-Tests for cloud_agent.py's graph, web window, and CLI entry points
+Tests for cloud_agent.py's graph and its A2A connection to the edge agent
 
 - Every graph/model call is mocked - nothing here makes a live network call
+- The A2A tests run the real edge agent server app in-process (httpx's ASGI transport), with
+  a fake model behind it - no sockets, no certificates, no Jetson
 - Env vars (CLOUD_AGENT_DEBUG, LLM_PROVIDER, API_KEY) are set via monkeypatch, never via
   the developer's real .env
 - The reload-regression test near the bottom reloads the real module in place - see its
-  own docstring before adding tests that assume a particular agent.graph/agent.demo identity
+  own docstring before adding tests that assume a particular agent.graph identity
 """
 
 # ---------------------------------
 # Imports
 # ---------------------------------
+import asyncio
 import importlib
-import gradio as gr
+import ssl
+from types import SimpleNamespace
+import httpx
 from langchain_core.messages import AIMessage, HumanMessage
-import capstone.cloud_agent as agent
+import capstone.cloud_agent.cloud_agent as agent
+from capstone.edge_agent.edge_agent import EdgeSettings, buildGraph as buildEdgeGraph
+from capstone.edge_agent.edge_agent_server import buildApp as buildEdgeApp
+
+
 
 
 # ---------------------------------
 # Test helpers
 # ---------------------------------
-class FakeMessage:
-    """
-    Stand-in for a LangChain message - just enough to carry a `.content` value
-    """
-
-    def __init__(self, content):
-        self.content = content
-
 
 class FakeLLM:
     """
-    Stand-in for `llm_with_tools` - records every call so tests can inspect what the graph
+    Stand-in for `llmWithTools` - records every call so tests can inspect what the graph
     actually sent it, and replies with a distinguishable message each time
     """
 
@@ -45,16 +46,61 @@ class FakeLLM:
         return AIMessage(content=f"{self.reply_text} #{len(self.calls)}")
 
 
+class ToolCallingLLM:
+    """
+    Stand-in for `llmWithTools` that calls askEdgeAgent on its first turn, then answers with
+    whatever the tool returned
+    """
+
+    def __init__(self):
+        self.calls = []
+
+    def invoke(self, messages):
+        self.calls.append(messages)
+
+        if (len(self.calls) == 1):
+            toolCall = {"name": "askEdgeAgent", "args": {"message": "are you there?"}, "id": "call-1"}
+
+            return AIMessage(content="", tool_calls=[toolCall])
+
+        return AIMessage(content=f"Edge said: {messages[-1].content}")
+
+
+class FakeEdgeModel:
+    """
+    Stand-in for the edge agent's Gemma chat model - echoes the last message back
+    """
+
+    def invoke(self, messages):
+        return AIMessage(content=f"edge echo: {messages[-1].content}")
+
+
+def edgeHttpClient() -> httpx.AsyncClient:
+    """
+    Build an HTTP client wired straight into an in-process edge agent server app
+
+    - The app runs the real A2A routes and executor, with FakeEdgeModel in place of Gemma
+    """
+
+    edgeSettings = EdgeSettings(_env_file=None)
+    edgeApp = buildEdgeApp(edgeSettings, buildEdgeGraph(FakeEdgeModel()))
+
+    return httpx.AsyncClient(transport=httpx.ASGITransport(app=edgeApp))
+
+
+
+
 # ---------------------------------
 # chatbot tests
 # ---------------------------------
+
 def test_chatbot_wraps_model_reply_in_a_messages_list(monkeypatch):
     """
     chatbot() should return a state dict containing exactly the model's reply
     """
 
     fake_llm = FakeLLM()
-    monkeypatch.setattr(agent, "llm_with_tools", fake_llm)
+    monkeypatch.setattr(agent, "llmWithTools", fake_llm)
 
     result = agent.chatbot({"messages": [HumanMessage(content="hi")]})
 
@@ -63,19 +109,29 @@ def test_chatbot_wraps_model_reply_in_a_messages_list(monkeypatch):
     assert (result["messages"][0].content == "mocked reply #1")
 
 
+
+
 # ---------------------------------
-# build_graph tests
+# buildGraph tests
 # ---------------------------------
+
 def test_build_graph_has_chatbot_and_tools_nodes():
     """
-    The compiled graph should expose a chatbot node and a tools node, ready for real tools
-    to register onto later
+    The compiled graph should expose a chatbot node and a tools node
     """
 
-    compiled = agent.build_graph()
+    compiled = agent.buildGraph()
     node_names = set(compiled.get_graph().nodes.keys())
 
     assert ({"chatbot", "tools"}.issubset(node_names))
+
+
+def test_ask_edge_agent_is_registered_as_a_tool():
+    """
+    askEdgeAgent should be in the tool list the chat model is bound to
+    """
+
+    assert ([registered.name for registered in agent.tools] == ["askEdgeAgent"])
 
 
 def test_graph_persists_conversation_across_calls_on_same_thread(monkeypatch):
@@ -84,9 +140,9 @@ def test_graph_persists_conversation_across_calls_on_same_thread(monkeypatch):
     """
 
     fake_llm = FakeLLM()
-    monkeypatch.setattr(agent, "llm_with_tools", fake_llm)
+    monkeypatch.setattr(agent, "llmWithTools", fake_llm)
 
-    compiled = agent.build_graph()
+    compiled = agent.buildGraph()
     config = {"configurable": {"thread_id": "shared-thread"}}
 
     compiled.invoke({"messages": [HumanMessage(content="first")]}, config=config)
@@ -103,9 +159,9 @@ def test_graph_does_not_share_memory_across_different_threads(monkeypatch):
     """
 
     fake_llm = FakeLLM()
-    monkeypatch.setattr(agent, "llm_with_tools", fake_llm)
+    monkeypatch.setattr(agent, "llmWithTools", fake_llm)
 
-    compiled = agent.build_graph()
+    compiled = agent.buildGraph()
     config_a = {"configurable": {"thread_id": "thread-a"}}
     config_b = {"configurable": {"thread_id": "thread-b"}}
 
@@ -116,234 +172,164 @@ def test_graph_does_not_share_memory_across_different_threads(monkeypatch):
     assert (len(fake_llm.calls[1]) == 1)
 
 
-# ---------------------------------
-# new_thread_id tests
-# ---------------------------------
-def test_new_thread_id_returns_a_string():
+def test_graph_routes_a_tool_call_through_ask_edge_agent(monkeypatch):
     """
-    new_thread_id() should return a plain string, suitable for use as a LangGraph thread id
+    A model turn that calls askEdgeAgent should run the tool, then feed its result back to the model
     """
 
-    assert (isinstance(agent.new_thread_id(), str))
+    sent = []
 
+    async def fake_send(text, edgeUrl, httpClient):
+        sent.append(text)
 
-def test_new_thread_id_returns_unique_values():
-    """
-    Repeated calls should never return the same id, so separate chat sessions never collide
-    """
+        return "edge is online"
 
-    ids = {agent.new_thread_id() for _ in range(100)}
+    monkeypatch.setattr(agent, "llmWithTools", ToolCallingLLM())
+    monkeypatch.setattr(agent, "buildSslContext", lambda path: ssl.create_default_context())
+    monkeypatch.setattr(agent, "sendToEdgeAgent", fake_send)
 
-    assert (len(ids) == 100)
-
-
-# ---------------------------------
-# extract_text tests
-# ---------------------------------
-def test_extract_text_passes_through_a_plain_string():
-    """
-    A plain string content should be returned unchanged
-    """
-
-    assert (agent.extract_text("plain string") == "plain string")
-
-
-def test_extract_text_joins_text_blocks_from_a_list():
-    """
-    Multiple text blocks should be concatenated into one string
-    """
-
-    content = [{"type": "text", "text": "part one "}, {"type": "text", "text": "part two"}]
-
-    assert (agent.extract_text(content) == "part one part two")
-
-
-def test_extract_text_skips_non_text_blocks():
-    """
-    Non-text blocks (e.g. reasoning signatures) should be dropped, not included in the result
-    """
-
-    content = [
-        {"type": "text", "text": "visible"},
-        {"type": "thought", "text": "should not appear", "extras": {"signature": "xyz"}}
-    ]
-
-    assert (agent.extract_text(content) == "visible")
-
-
-def test_extract_text_returns_empty_string_for_an_empty_list():
-    """
-    An empty content-block list should produce an empty string, not an error
-    """
-
-    assert (agent.extract_text([]) == "")
-
-
-# ---------------------------------
-# respond tests
-# ---------------------------------
-def test_respond_returns_model_reply_text(monkeypatch):
-    """
-    A successful graph.invoke() should have its reply text extracted and returned
-    """
-
-    monkeypatch.setattr (
-        agent.graph, "invoke",
-        lambda *args, **kwargs: {"messages": [FakeMessage("hello there")]}
+    compiled = agent.buildGraph()
+    state = asyncio.run (
+        compiled.ainvoke (
+            {"messages": [HumanMessage(content="ping the robot")]},
+            config={"configurable": {"thread_id": "tool-thread"}}
+        )
     )
 
-    assert (agent.respond("hi", [], "test-thread") == "hello there")
+    assert (sent == ["are you there?"])
+    assert (state["messages"][-1].content == "Edge said: edge is online")
 
 
-def test_respond_extracts_text_from_content_blocks(monkeypatch):
+
+
+# ---------------------------------
+# buildSslContext tests
+# ---------------------------------
+
+def test_build_ssl_context_raises_with_instructions_when_ca_missing(tmp_path):
     """
-    A Gemini-style structured content reply should still come back as plain text
+    A missing CA certificate should raise, pointing at `uv run make-certs`
     """
 
-    content = [{"type": "text", "text": "structured reply"}]
-    monkeypatch.setattr (
-        agent.graph, "invoke",
-        lambda *args, **kwargs: {"messages": [FakeMessage(content)]}
+    missing = tmp_path / "ca.crt"
+
+    try:
+        agent.buildSslContext(str(missing))
+    except FileNotFoundError as error:
+        assert ("make-certs" in str(error))
+    else:
+        raise AssertionError("expected FileNotFoundError")
+
+
+def test_build_ssl_context_trusts_the_given_ca(tmp_path):
+    """
+    An existing CA certificate should load into a verifying TLS context
+    """
+
+    from capstone.certificates import makeCerts
+
+    makeCerts(tmp_path, "192.168.10.2", "jetson-edge")
+    context = agent.buildSslContext(str(tmp_path / "ca.crt"))
+
+    assert (context.verify_mode == ssl.CERT_REQUIRED)
+    assert (len(context.get_ca_certs()) == 1)
+
+
+
+
+# ---------------------------------
+# sendToEdgeAgent tests
+# ---------------------------------
+
+def test_send_to_edge_agent_round_trips_through_the_real_edge_server():
+    """
+    The A2A client should fetch the edge agent's card, send the message, and return the reply text
+    """
+
+    async def run():
+        async with edgeHttpClient() as httpClient:
+            return await agent.sendToEdgeAgent("hello edge", "https://192.168.10.2:8443", httpClient)
+
+    assert (asyncio.run(run()) == "edge echo: hello edge")
+
+
+
+
+# ---------------------------------
+# askEdgeAgent tests
+# ---------------------------------
+
+def test_ask_edge_agent_reports_missing_certs_instead_of_raising(monkeypatch, tmp_path):
+    """
+    No CA certificate yet should come back as the tool's result, so the chat model can explain it
+    """
+
+    fake_settings = SimpleNamespace (
+        cloud_ca_cert=str(tmp_path / "missing.crt"),
+        cloud_edge_url="https://192.168.10.2:8443",
+        cloud_edge_timeout=5.0
     )
+    monkeypatch.setattr(agent, "settings", fake_settings)
 
-    assert (agent.respond("hi", [], "test-thread") == "structured reply")
+    result = asyncio.run(agent.askEdgeAgent.ainvoke({"message": "hi"}))
+
+    assert ("couldn't be reached" in result)
+    assert ("make-certs" in result)
 
 
-def test_respond_returns_a_friendly_message_on_failure(monkeypatch):
+def test_ask_edge_agent_reports_an_unreachable_edge_agent(monkeypatch):
     """
-    A model-provider failure should come back as a chat message, not raise
-    """
-
-    def broken_invoke(*args, **kwargs):
-        raise RuntimeError("503 UNAVAILABLE")
-
-    monkeypatch.setattr(agent.graph, "invoke", broken_invoke)
-
-    result = agent.respond("hi", [], "test-thread")
-
-    assert ("Sorry, the model call failed" in result)
-    assert ("503 UNAVAILABLE" in result)
-
-
-def test_respond_prints_the_real_error_to_the_console_on_failure(monkeypatch, capsys):
-    """
-    The full error should still reach the console, even though the chat window gets a friendlier message
+    A network failure (cable unplugged, server down) should come back as the tool's result, not raise
     """
 
-    def broken_invoke(*args, **kwargs):
-        raise RuntimeError("simulated failure")
+    async def unreachable(text, edgeUrl, httpClient):
+        raise httpx.ConnectError("connection refused")
 
-    monkeypatch.setattr(agent.graph, "invoke", broken_invoke)
-    agent.respond("hi", [], "test-thread")
+    monkeypatch.setattr(agent, "buildSslContext", lambda path: ssl.create_default_context())
+    monkeypatch.setattr(agent, "sendToEdgeAgent", unreachable)
 
-    captured = capsys.readouterr()
+    result = asyncio.run(agent.askEdgeAgent.ainvoke({"message": "hi"}))
 
-    assert ("Chat model call failed: simulated failure" in captured.out)
+    assert ("couldn't be reached" in result)
+    assert ("connection refused" in result)
 
 
-def test_respond_logs_received_and_replied_messages(monkeypatch, caplog):
+def test_ask_edge_agent_uses_configured_url_and_timeout(monkeypatch):
     """
-    A successful call should log both the incoming message and the elapsed reply time
-    """
-
-    monkeypatch.setattr (
-        agent.graph, "invoke",
-        lambda *args, **kwargs: {"messages": [FakeMessage("ok")]}
-    )
-
-    with caplog.at_level("DEBUG", logger="cloud_agent"):
-        agent.respond("test message", [], "log-thread")
-
-    assert (any("received: 'test message'" in record.message for record in caplog.records))
-    assert (any("replied in" in record.message for record in caplog.records))
-
-
-# ---------------------------------
-# demo tests
-# ---------------------------------
-def test_demo_is_a_chat_interface():
-    """
-    demo should be a Gradio ChatInterface - the type Gradio's reload CLI looks for by default
-    """
-
-    assert (isinstance(agent.demo, gr.ChatInterface))
-
-
-def test_demo_is_wired_to_respond():
-    """
-    demo's callback should be respond() itself, not a copy or a wrapper
-    """
-
-    assert (agent.demo.fn is agent.respond)
-
-
-# ---------------------------------
-# main tests
-# ---------------------------------
-def test_main_launches_demo(monkeypatch):
-    """
-    main() should launch the module-level demo, nothing more
-    """
-
-    calls = []
-    monkeypatch.setattr(agent.demo, "launch", lambda *args, **kwargs: calls.append(True))
-    agent.main()
-
-    assert (calls == [True])
-
-
-# ---------------------------------
-# dev tests
-# ---------------------------------
-def test_dev_runs_gradio_reload_cli_on_this_file(monkeypatch):
-    """
-    dev() should shell out to `gradio <this file> --watch-dirs <src>`, not launch demo directly
+    The tool should send to CLOUD_EDGE_URL, through a client using CLOUD_EDGE_TIMEOUT
     """
 
     captured = {}
 
-    def fake_run(command, env=None):
-        captured["command"] = command
+    async def fake_send(text, edgeUrl, httpClient):
+        captured["url"] = edgeUrl
+        captured["timeout"] = httpClient.timeout.read
 
-    monkeypatch.setattr(agent.subprocess, "run", fake_run)
-    agent.dev()
+        return "ok"
 
-    assert (captured["command"][0] == "gradio")
-    assert (captured["command"][1].endswith("agent.py"))
-    assert (captured["command"][2] == "--watch-dirs")
-    assert (captured["command"][3].endswith("src"))
+    fake_settings = SimpleNamespace(cloud_ca_cert="unused", cloud_edge_url="https://10.0.0.5:9000", cloud_edge_timeout=42.0)
+    monkeypatch.setattr(agent, "settings", fake_settings)
+    monkeypatch.setattr(agent, "buildSslContext", lambda path: ssl.create_default_context())
+    monkeypatch.setattr(agent, "sendToEdgeAgent", fake_send)
+
+    assert (asyncio.run(agent.askEdgeAgent.ainvoke({"message": "hi"})) == "ok")
+    assert (captured == {"url": "https://10.0.0.5:9000", "timeout": 42.0})
 
 
-def test_dev_turns_on_debug_logging_for_its_subprocess(monkeypatch):
-    """
-    dev()'s subprocess should inherit the current environment, plus CLOUD_AGENT_DEBUG=1
-    """
-
-    monkeypatch.setenv("SOME_UNRELATED_VAR", "still-here")
-
-    captured = {}
-
-    def fake_run(command, env=None):
-        captured["env"] = env
-
-    monkeypatch.setattr(agent.subprocess, "run", fake_run)
-    agent.dev()
-
-    assert (captured["env"]["CLOUD_AGENT_DEBUG"] == "1")
-    assert (captured["env"]["SOME_UNRELATED_VAR"] == "still-here")
 
 
 # ---------------------------------
 # Logging regression
 # ---------------------------------
+
 def test_logger_handlers_dont_duplicate_across_reload(monkeypatch):
     """
     Gradio's reload CLI re-executes this module's top-level code multiple times in one
     process - reloading with CLOUD_AGENT_DEBUG set must not stack a new handler onto the
     shared "cloud_agent" logger each time, or every log line duplicates
 
-    Reloads the real capstone.cloud_agent module, rebuilding its graph/demo/etc in place -
-    keep this isolated from tests that assume a particular agent.graph/agent.demo identity
+    Reloads the real capstone.cloud_agent.cloud_agent module, rebuilding its graph in place -
+    keep this isolated from tests that assume a particular agent.graph identity
     """
 
     monkeypatch.setenv("CLOUD_AGENT_DEBUG", "1")

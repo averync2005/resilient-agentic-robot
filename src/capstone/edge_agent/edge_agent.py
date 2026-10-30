@@ -16,8 +16,15 @@ Configuration:
 - Every setting has a working default, so no `.env` entries are required
 - Override any of them in `.env` with an `EDGE_` prefix (ex. EDGE_BASE_URL, EDGE_SYSTEM_PROMPT)
 
+LangGraph agent:
+- `buildGraph()` wraps Gemma (via LangChain's ChatOpenAI, pointed at llama-server) in a LangGraph graph
+- No tools yet - safety validation and ROS 2 tools register onto it later, the same way as the cloud agent's
+- Stateless: no checkpointer, so each `generateReply()` call starts a fresh conversation
+- Used by the A2A server in `edge_agent_server.py` to answer the cloud agent
+
 Terminal chat:
 - `main()` runs a chat loop in the terminal, streaming each reply as it generates
+- Talks to llama-server directly (not through the graph), for local debugging on the Jetson
 - Conversation history lives in memory for the length of the session only
 - Registered as the `edge-agent` CLI command in `pyproject.toml`
 - Run it with:
@@ -38,9 +45,14 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from typing import NoReturn
+from typing import Annotated, NoReturn
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_openai import ChatOpenAI
+from langgraph.graph import END, START, StateGraph
+from langgraph.graph.message import add_messages
 from openai import OpenAI, OpenAIError
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing_extensions import TypedDict
 
 
 
@@ -48,6 +60,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # ---------------------------------
 # Settings
 # ---------------------------------
+
 class EdgeSettings(BaseSettings):
     """
     Typed configuration for the local model server and the edge agent's chat behavior
@@ -78,12 +91,23 @@ class EdgeSettings(BaseSettings):
         "running locally on an NVIDIA Jetson Orin Nano. Keep answers short and concrete."
     )
 
+    a2a_host: str = "0.0.0.0"  # Interface the A2A server binds to (0.0.0.0 = every interface, including the Ethernet link)
+
+    a2a_port: int = 8443  # Port the A2A server listens on
+
+    public_url: str = "https://192.168.10.2:8443"  # Address advertised in the agent card - where the cloud agent reaches this server
+
+    tls_cert: str = "certs/edge.crt"  # Server certificate from `uv run make-certs`
+
+    tls_key: str = "certs/edge.key"  # Private key for tls_cert
+
 
 
 
 # ---------------------------------
 # Activating the local model server
 # ---------------------------------
+
 def isServerReady(baseUrl: str) -> bool:
     """
     Check whether llama-server is up and finished loading its model
@@ -173,6 +197,7 @@ def activateServer(settings: EdgeSettings) -> None:
 # ---------------------------------
 # Thinking mode
 # ---------------------------------
+
 def thinkingOptions(settings: EdgeSettings) -> dict:
     """
     Build the request field that turns Gemma 4's reasoning mode on or off
@@ -194,8 +219,92 @@ def thinkingOptions(settings: EdgeSettings) -> dict:
 
 
 # ---------------------------------
+# LangGraph agent
+# ---------------------------------
+
+class EdgeState(TypedDict):
+    """
+    LangGraph state for one edge agent request
+
+    - `messages` accumulates via `add_messages`, so each node appends rather than replaces
+    """
+
+    messages: Annotated[list, add_messages]
+
+
+def buildChatModel(settings: EdgeSettings) -> ChatOpenAI:
+    """
+    Build a LangChain chat model pointed at the local llama-server
+
+    Args:
+        settings: Supplies the server URL, model name, and thinking flag
+
+    Returns:
+        A ChatOpenAI model, since llama-server speaks the OpenAI API
+    """
+
+    # llama-server doesn't check API keys, but the openai client refuses to run without one
+    return ChatOpenAI (
+        base_url=settings.base_url,
+        api_key="not-needed",
+        model=settings.model,
+        extra_body=thinkingOptions(settings)
+    )
+
+
+def buildGraph(chatModel):
+    """
+    Wire up the edge agent's graph around a chat model
+
+    - A single "chatbot" node for now - a "tools" node joins it once edge tools exist
+    - No checkpointer, so nothing carries over between requests
+
+    Args:
+        chatModel: The model to answer with (from `buildChatModel()`, or a stand-in in tests)
+
+    Returns:
+        A compiled LangGraph graph ready for `.ainvoke()`
+    """
+
+    def chatbot(state: EdgeState) -> EdgeState:
+        return {"messages": [chatModel.invoke(state["messages"])]}
+
+    builder = StateGraph(EdgeState)
+
+    builder.add_node(chatbot)
+
+    builder.add_edge(START, "chatbot")
+    builder.add_edge("chatbot", END)
+
+    return builder.compile()
+
+
+async def generateReply(graph, settings: EdgeSettings, text: str) -> str:
+    """
+    Answer one message with the edge agent's graph, starting from a fresh conversation
+
+    Args:
+        graph: A compiled graph from `buildGraph()`
+        settings: Supplies the system prompt
+        text: The incoming message
+
+    Returns:
+        The model's reply text
+    """
+
+    state = await graph.ainvoke (
+        {"messages": [SystemMessage(content=settings.system_prompt), HumanMessage(content=text)]}
+    )
+
+    return state["messages"][-1].text
+
+
+
+
+# ---------------------------------
 # Terminal chat
 # ---------------------------------
+
 def streamReply(client: OpenAI, settings: EdgeSettings, messages: list) -> str:
     """
     Send the conversation to the local model, printing the reply token by token as it generates
@@ -293,6 +402,7 @@ def main() -> None:
 # ---------------------------------
 # Speed check
 # ---------------------------------
+
 def check() -> None:
     """
     Activate the local model server, send one fixed prompt, and report generation speed

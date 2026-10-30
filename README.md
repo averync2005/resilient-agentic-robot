@@ -4,25 +4,25 @@ Code for the "Resilient Cloud-to-Edge Agentic Robotic System" (ECE 257/258, Lehi
 
 ## The two tiers
 
-The system splits its reasoning across two tiers that talk to each other over a network. Both tiers live in this repo, as two modules of the same `capstone` Python package.
+The system splits its reasoning across two tiers that talk to each other over a network. Both tiers live in this repo, as two subpackages of the same `capstone` Python package.
 
-| | Cloud agent (`cloud_agent.py`) | Edge agent (`edge_agent.py`) |
+| | Cloud agent (`cloud_agent/`) | Edge agent (`edge_agent/`) |
 |---|---|---|
-| Runs on | An always-on cloud host | An NVIDIA Jetson Orin Nano Super, mounted on the robot |
+| Runs on | A laptop for now (eventually an always-on cloud host) | An NVIDIA Jetson Orin Nano Super, mounted on the robot |
 | Model | A hosted LLM (currently Google Gemini) | Gemma 4 E2B, running locally on the Jetson's GPU |
 | Job | Turn a natural-language command into an ordered sequence of robot actions | Receive that sequence, check that it is safe, and move the robot arm via ROS 2 |
 | Without internet | Unavailable | Keeps working (the local model needs no network) |
 
-The two tiers will talk to each other over A2A (Agent-to-Agent) protocol. The A2A "contract" (the shape of the messages the cloud agent sends) will be documented here once it exists.
+Both agents are LangGraph agents. They talk to each other over A2A (Agent-to-Agent) protocol, using Google's `a2a-sdk`, over HTTPS on a direct Ethernet cable between the laptop and the Jetson. See "Connecting the two agents" below. For now the A2A "contract" is plain text: the cloud agent sends a message and the edge agent replies. The structured robot-action contract will be documented here once it exists.
 
 ## What this code does, in plain English
 
 **Right now:**
 
-- **Cloud agent:** a person types into a web chat window, and a LangGraph-backed agent running on Gemini replies, with memory of the conversation so far
-- **Edge agent:** a person types into a terminal chat, and Gemma 4 replies from the Jetson itself, with no cloud involved
+- **Cloud agent:** a person types into a web chat window, and a LangGraph-backed agent running on Gemini replies, with memory of the conversation so far. When the person asks for the edge agent, the Jetson, or the robot, Gemini calls its `askEdgeAgent` tool, which sends a message to the edge agent over A2A and returns its reply
+- **Edge agent:** runs an HTTPS A2A server on the Jetson (`edge-agent-serve`). Each incoming message is answered by Gemma 4 through a small LangGraph graph, with no memory between messages. A terminal chat (`edge-agent`) is still there for talking to Gemma directly on the Jetson
 
-Neither agent generates robot action plans, talks to the other over A2A, or moves a robot yet. Those come later in the two-semester schedule (see the project proposal for the full timeline).
+Neither agent generates robot action plans or moves a robot yet. Those come later in the two-semester schedule (see the project proposal for the full timeline).
 
 **The finished picture:** the cloud agent turns a command into an ordered list of robot actions from a fixed, pre-approved vocabulary. That vocabulary is a set of named poses like `switch_1`, `button_2`, `home`, and `safe_retract`, and the robot is never told to do anything outside it. The cloud agent sends that plan to the Jetson over A2A, and the edge agent (not the cloud agent) validates and executes it. The cloud agent does not trust itself to be the final safety check. When the cloud is unreachable, the edge agent's local model is the fallback.
 
@@ -32,27 +32,35 @@ Neither agent generates robot action plans, talks to the other over A2A, or move
 src/capstone/
     __init__.py               Package docstring (a short version of this README, read by tools that
                               inspect the package)
-    agent_configuration.py    The cloud agent's Settings (reads .env into a validated object: LLM provider,
-                              model, API key) and get_chat_model() (builds a LangChain chat model from
-                              Settings). This is the ONE place that knows about specific LLM vendor SDKs.
-                              Everything else calls get_chat_model() instead of importing e.g.
-                              langchain_google_genai directly. That is what "model-agnostic" means in
-                              practice: swapping providers touches this file and .env, nothing else.
-    cloud_agent.py            The LangGraph conversational graph (chatbot node, placeholder tools node,
-                              per-conversation memory) and the Gradio web window that talks to it. main()
-                              is the `cloud-agent` command's entry point. dev() is `cloud-agent-dev`'s
-                              (same app, auto-reloads on source changes).
-    edge_agent.py             The edge agent: EdgeSettings (EDGE_* variables from .env, all optional),
-                              startup of the local model server, a streaming terminal chat (main(), the
-                              `edge-agent` command), and a speed check (check(), the `edge-agent-check`
-                              command).
-tests/
-    test_cloud_agent.py          pytest tests for cloud_agent.py's graph, web window, and entry points
-    test_edge_agent.py           pytest tests for edge_agent.py's settings, server startup, chat, and speed check
-    test_agent_configuration.py  pytest tests for agent_configuration.py
-pyproject.toml                Project metadata, dependency list, and the four CLI commands, managed by uv
+    certificates.py           `make-certs`: creates the project's private certificate authority (CA) and
+                              the Jetson's HTTPS server certificate, signed by it (see "Connecting the
+                              two agents").
+    cloud_agent/
+        agent_configuration.py  The cloud agent's Settings (reads .env into a validated object: LLM
+                                provider, model, API key, edge agent URL, CA path) and getChatModel()
+                                (builds a LangChain chat model from Settings). This is the ONE place that
+                                knows about specific LLM vendor SDKs. Everything else calls
+                                getChatModel() instead of importing e.g. langchain_google_genai directly.
+                                That is what "model-agnostic" means in practice: swapping providers
+                                touches this file and .env, nothing else.
+        cloud_agent.py          The LangGraph conversational graph (chatbot node, tools node,
+                                per-conversation memory) and the A2A client that reaches the edge agent,
+                                exposed to the model as the `askEdgeAgent` tool.
+        web_ui.py               The Gradio web window. main() is the `cloud-agent` command's entry point.
+                                dev() is `cloud-agent-dev`'s (same app, auto-reloads on source changes).
+    edge_agent/
+        edge_agent.py           EdgeSettings (EDGE_* variables from .env, all optional), startup of the
+                                local model server, the edge agent's LangGraph graph (Gemma via
+                                ChatOpenAI), a streaming terminal chat (main(), the `edge-agent` command),
+                                and a speed check (check(), the `edge-agent-check` command).
+        edge_agent_card.py      The A2A agent card: who the edge agent is, its skills, and where to reach it.
+        edge_agent_server.py    The HTTPS A2A server (serve(), the `edge-agent-serve` command) and the
+                                executor that answers each message with the graph.
+tests/                        One pytest file per module above (test_<module>.py)
+pyproject.toml                Project metadata, dependency list, and the six CLI commands, managed by uv
 .env.example                  Template for the .env file you create locally. .env itself is git-ignored,
                               so real API keys are never committed.
+certs/                        Created by `uv run make-certs`. Git-ignored, so keys are never committed.
 ```
 
 ## Setup
@@ -80,13 +88,15 @@ uv run cloud-agent
 ```
 This starts a local Gradio server (by default at `http://127.0.0.1:7860`) and prints the URL to open. Each browser tab gets its own conversation memory.
 
+To reach the edge agent from the chat window, the Jetson needs to be running `uv run edge-agent-serve` (see "Connecting the two agents"). Without it, the cloud agent still chats normally, and any edge agent request comes back explaining that the edge agent couldn't be reached.
+
 ### Live-reloading while developing
 
 Instead of `uv run cloud-agent`, use:
 ```bash
 uv run cloud-agent-dev
 ```
-This runs Gradio's own dev-reload CLI, watching the whole `src/` tree. An edit to any file in the package restarts the running app automatically, with no manual stop and restart. It also turns on debug logging (reply timing, graph build time). Under the hood it runs `uv run gradio src/capstone/cloud_agent.py --watch-dirs src` (see `dev()` in `cloud_agent.py`).
+This runs Gradio's own dev-reload CLI, watching the whole `src/` tree. An edit to any file in the package restarts the running app automatically, with no manual stop and restart. It also turns on debug logging (reply timing, graph build time, edge agent replies). Under the hood it runs `uv run gradio src/capstone/cloud_agent/web_ui.py --watch-dirs src` (see `dev()` in `web_ui.py`).
 
 ## Running the edge agent (Jetson only)
 
@@ -142,20 +152,97 @@ This sends one fixed prompt, prints the reply, and reports prompt and generation
 
 Gemma 4 can reason before answering. That reasoning returns separately from the reply, and it can use the whole token budget before any visible answer appears. It also multiplies reply time several times over. It is off by default. Set `EDGE_THINKING=true` in `.env` to turn it on, and the terminal chat shows `(thinking...)` while the model reasons.
 
+## Connecting the two agents
+
+The cloud agent runs on a laptop, and the edge agent runs on the Jetson. They are joined by a direct Ethernet cable and talk A2A over HTTPS:
+
+```text
+Laptop (192.168.10.1)                                    Jetson (192.168.10.2)
+  uv run cloud-agent                                       uv run edge-agent-serve
+  Gemini decides to call askEdgeAgent  --- HTTPS :8443 --> A2A server -> LangGraph -> Gemma 4
+                                       <-- reply --------
+```
+
+- The cloud agent first fetches the edge agent's **agent card** from `https://192.168.10.2:8443/.well-known/agent-card.json`. The card says who the edge agent is, what it can do (one `chat` skill for now), and where to send messages.
+- It then sends the message as an A2A JSON-RPC request and waits for the complete reply. Gemma on the Jetson can take a while, so the timeout is 120 seconds (`CLOUD_EDGE_TIMEOUT`).
+- The edge agent is stateless. Each message is answered on its own, and the cloud agent's own memory is what holds the conversation.
+- The link is encrypted, but there is no authentication yet. Anything that can reach port 8443 can send the edge agent messages, which over a direct cable means only the laptop.
+
+### One-time setup: static IPs on the Ethernet link
+
+There is no router on a direct cable, so each side needs a fixed address. Neither side gets a gateway, so both keep their internet through Wi-Fi.
+
+**Laptop (Windows):** open Settings > Network & internet > Ethernet > IP assignment > Edit. Choose Manual, turn on IPv4, and set IP address `192.168.10.1` and subnet mask `255.255.255.0`. Leave the gateway and DNS blank. Or, from an administrator PowerShell:
+
+```powershell
+New-NetIPAddress -InterfaceAlias "Ethernet" -IPAddress 192.168.10.1 -PrefixLength 24
+```
+
+**Jetson:** find the Ethernet interface name with `nmcli device` (often `eth0` or `enP8p1s0`), then:
+
+```bash
+sudo nmcli con add type ethernet ifname <interface> con-name capstone-link ipv4.method manual ipv4.addresses 192.168.10.2/24
+sudo nmcli con up capstone-link
+```
+
+Check the link from the laptop with `ping 192.168.10.2`.
+
+### One-time setup: HTTPS certificates
+
+The Jetson has no domain name, so no public certificate authority can issue it a certificate. Instead, `make-certs` creates a private certificate authority (CA) just for this project and uses it to sign the Jetson's certificate. The cloud agent trusts only that CA, so nothing else can pretend to be the Jetson.
+
+On the **laptop**, from the project root:
+
+```bash
+uv run make-certs
+```
+
+This writes four files to `certs/` (git-ignored):
+
+| File | Stays on | Purpose |
+|---|---|---|
+| `ca.crt` | Laptop | The cloud agent checks the Jetson's certificate against this (`CLOUD_CA_CERT`) |
+| `ca.key` | Laptop | Signs certificates. Never copy it anywhere |
+| `edge.crt` | Jetson | The Jetson's server certificate, valid for `192.168.10.2` and `localhost` (`EDGE_TLS_CERT`) |
+| `edge.key` | Jetson | The server certificate's private key (`EDGE_TLS_KEY`) |
+
+Copy the server pair into the repo on the Jetson:
+
+```bash
+ssh <user>@192.168.10.2 "mkdir -p <repo>/certs"
+scp certs/edge.crt certs/edge.key <user>@192.168.10.2:<repo>/certs/
+```
+
+If the Jetson's IP changes, run `uv run make-certs --ip <new ip>` and copy the two files again. The CA is reused, so the laptop doesn't need anything new.
+
+### Running both agents
+
+1. On the **Jetson**: `uv run edge-agent-serve`. This starts the `gemma` container if needed, then listens on `https://0.0.0.0:8443`. Every message it receives and every reply it sends is logged to the terminal.
+2. On the **laptop**: `uv run cloud-agent`, open the chat window, and ask for the edge agent, e.g. "Ask the edge agent if it's online."
+
+If the cloud agent says the edge agent couldn't be reached, the error text says why. The usual causes are:
+
+- The cable or a static IP isn't set up. Check with `ping 192.168.10.2`.
+- `edge-agent-serve` isn't running.
+- `certs/ca.crt` is missing on the laptop.
+- The Jetson's certificate came from a different `make-certs` run than the laptop's `ca.crt`.
+
+Every address, port, and certificate path can be overridden in `.env`. See the `CLOUD_*` and `EDGE_*` entries in `.env.example`.
+
 ## Running the tests
 
 ```bash
 uv run pytest
 ```
-No test makes a live network call. Model, docker, and HTTP calls are all mocked, so the tests run without the `gemma` container or an internet connection.
+No test makes a live network call. Model, docker, and HTTP calls are all mocked, so the tests run without the `gemma` container, the Jetson, or an internet connection. The A2A tests run the real edge agent server in-process, through httpx's ASGI transport, with a fake model behind it, so the cloud agent's A2A client is tested against the real server code.
 
-- `test_agent_configuration.py` and `test_edge_agent.py` never depend on your real `.env`. They set environment variables directly via pytest's `monkeypatch` fixture.
-- `test_cloud_agent.py` imports `cloud_agent.py`, which builds the chat model at import time, so it needs the cloud agent's `.env` settings filled in.
+- `test_agent_configuration.py`, the `test_edge_agent*.py` files, and `test_certificates.py` never depend on your real `.env`. They set values directly, via pytest's `monkeypatch` fixture or `_env_file=None`.
+- `test_cloud_agent.py` and `test_web_ui.py` import `cloud_agent.py`, which builds the chat model at import time, so they need the cloud agent's `.env` settings filled in.
 - For a live end-to-end check of the edge agent against the real model server, run `uv run edge-agent-check`.
 
 ## Why Gemini for the cloud agent?
 
-Google AI Studio has a free tier, which matters for a two-person capstone budget. Its daily free-tier request quota is easy to burn through while testing. A `RESOURCE_EXHAUSTED` error means the quota ran out, not that the code has a bug. Nothing in the design is Gemini-specific: see `agent_configuration.py` for how a second provider would be added, per the project's "model-agnostic" requirement.
+Google AI Studio has a free tier, which matters for a two-person capstone budget. Its daily free-tier request quota is easy to burn through while testing. A `RESOURCE_EXHAUSTED` error means the quota ran out, not that the code has a bug. Nothing in the design is Gemini-specific: see `cloud_agent/agent_configuration.py` for how a second provider would be added, per the project's "model-agnostic" requirement.
 
 ## Adding a new dependency
 

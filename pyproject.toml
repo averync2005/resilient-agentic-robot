@@ -11,21 +11,27 @@ authors = [
 ]
 requires-python = ">=3.14"
 dependencies = [
+    "a2a-sdk[http-server]>=1.3.0",
+    "cryptography>=44",
     "gradio>=6.29.0",
+    "httpx>=0.28",
     "langchain>=1.4.1",
     "langchain-google-genai>=4.4.0",
+    "langchain-openai>=1.0",
     "langgraph>=1.2.11",
     "openai>=3.15.0",
     "pydantic-settings>=2.15.0",
-    "python-a2a>=0.5.10",
     "python-dotenv>=1.2.3",
+    "uvicorn>=0.30",
 ]
 
 [project.scripts]
-cloud-agent = "capstone.cloud_agent:main"
-cloud-agent-dev = "capstone.cloud_agent:dev"
-edge-agent = "capstone.edge_agent:main"
-edge-agent-check = "capstone.edge_agent:check"
+cloud-agent = "capstone.cloud_agent.web_ui:main"
+cloud-agent-dev = "capstone.cloud_agent.web_ui:dev"
+edge-agent = "capstone.edge_agent.edge_agent:main"
+edge-agent-check = "capstone.edge_agent.edge_agent:check"
+edge-agent-serve = "capstone.edge_agent.edge_agent_server:serve"
+make-certs = "capstone.certificates:main"
 
 [build-system]
 requires = ["uv_build>=0.12.10,<0.13.0"]
