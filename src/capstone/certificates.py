@@ -9,7 +9,7 @@ Why a project CA:
 
 Files written (to certs/, which is git-ignored):
 - ca.crt     The CA certificate - the cloud agent verifies the edge agent against it (CLOUD_CA_CERT)
-- ca.key     The CA private key - never leaves the laptop
+- ca.key     The CA private key - never leaves the machine that created it (our CA was created on the Jetson)
 - edge.crt   The Jetson's server certificate, valid for its IP plus localhost (EDGE_TLS_CERT)
 - edge.key   The server certificate's private key (EDGE_TLS_KEY)
 
@@ -17,12 +17,15 @@ Re-running:
 - An existing CA is reused, so a laptop that already trusts it keeps working
 - The server certificate is always re-issued (ex. after the Jetson's IP changes)
 
-Running it (on the laptop, from the project root):
+Running it (from the project root, on whichever machine holds the CA):
 - Registered as the `make-certs` CLI command in `pyproject.toml`
 - Run it with:
     uv run make-certs
     uv run make-certs --ip 192.168.10.2 --hostname jetson-edge
-- Then copy edge.crt and edge.key to the Jetson's certs/ folder
+    uv run make-certs --ip 192.168.55.1     (the USB-C stand-in link)
+- Run on the laptop: copy edge.crt and edge.key to the Jetson's certs/ folder
+- Run on the Jetson: copy only ca.crt to the laptop's certs/ folder
+- Never run it on both machines - that makes two unrelated CAs, and the laptop rejects the Jetson's certificate
 """
 
 # ---------------------------------

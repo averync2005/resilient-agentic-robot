@@ -91,7 +91,7 @@ class EdgeSettings(BaseSettings):
         "running locally on an NVIDIA Jetson Orin Nano. Keep answers short and concrete."
     )
 
-    a2a_host: str = "0.0.0.0"  # Interface the A2A server binds to (0.0.0.0 = every interface, including the Ethernet link)
+    a2a_host: str = "0.0.0.0"  # Interface the A2A server binds to (0.0.0.0 = every interface, including Wi-Fi - set it to the cable's IP to keep the unauthenticated server off Wi-Fi)
 
     a2a_port: int = 8443  # Port the A2A server listens on
 
@@ -151,8 +151,9 @@ def activateServer(settings: EdgeSettings) -> None:
     Make sure llama-server is running and ready, starting its container if it isn't
 
     - Returns immediately if the server is already healthy (the normal case)
-    - The container is created with --restart unless-stopped, so it usually comes up on boot by itself
     - Otherwise starts the container and polls /health until the model finishes loading
+    - The container should use --restart no (see README.md) - with unless-stopped, a model that runs out of
+      memory while loading gets restarted forever, and this function only ever sees the timeout
     - Exits the program with instructions if the server can't be brought up
 
     Args:
@@ -188,7 +189,8 @@ def activateServer(settings: EdgeSettings) -> None:
 
     exitWithStartInstructions (
         settings,
-        f"Container started, but the model didn't finish loading within {settings.startup_timeout:.0f}s"
+        f"Container started, but the model didn't finish loading within {settings.startup_timeout:.0f}s. "
+        f"If `docker logs {settings.container_name}` shows 'out of memory', see README.md, 'Freeing memory for Gemma'"
     )
 
 

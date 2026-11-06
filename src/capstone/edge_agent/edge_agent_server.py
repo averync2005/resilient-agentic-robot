@@ -5,6 +5,8 @@ Server:
 - A Starlette app serving two routes: the agent card (GET /.well-known/agent-card.json) and A2A JSON-RPC (POST /)
 - Runs under uvicorn over HTTPS, using the server certificate from `uv run make-certs`
 - Binds to EDGE_A2A_HOST:EDGE_A2A_PORT (0.0.0.0:8443 by default, so the Ethernet link can reach it)
+- 0.0.0.0 also means Wi-Fi, and nothing authenticates callers yet - while the Jetson is on Wi-Fi, set
+  EDGE_A2A_HOST to its address on the cable (192.168.10.2 over Ethernet, 192.168.55.1 over USB-C)
 
 Handling a message:
 - `EdgeAgentExecutor` passes the message text to the edge agent's LangGraph graph (`edge_agent.py`)
@@ -139,8 +141,8 @@ def requireCertFiles(settings: EdgeSettings) -> None:
         return
 
     print(f"[ERROR] TLS file(s) not found: {', '.join(missing)}")
-    print("Generate them on the laptop with: uv run make-certs")
-    print("Then copy them to the Jetson with: scp certs/edge.crt certs/edge.key <user>@192.168.10.2:<repo>/certs/")
+    print("Generate them with: uv run make-certs --ip <Jetson IP>, on the machine that holds the project CA (see README.md)")
+    print("If that's the laptop, copy them to the Jetson with: scp certs/edge.crt certs/edge.key <user>@<Jetson IP>:<repo>/certs/")
 
     sys.exit(1)
 
