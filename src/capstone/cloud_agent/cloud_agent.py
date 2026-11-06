@@ -13,6 +13,7 @@ Edge agent connection:
 - Each `askEdgeAgent` call fetches the edge agent's card, then sends one message and waits for the full reply
 - The edge agent's certificate is verified against the project CA only (`CLOUD_CA_CERT`), never the system trust store
 - The edge agent is stateless, so anything it needs to know has to be in the message itself
+- Failures come back to the chat model as the tool's result, worded differently for "couldn't reach the edge agent" and "reached it, but it failed to answer"
 
 Web window:
 - Lives in `web_ui.py`, which imports the compiled graph from here
@@ -29,6 +30,7 @@ from pathlib import Path
 from typing import Annotated
 import httpx
 from a2a.client import ClientConfig, create_client
+from a2a.client.errors import A2AClientError
 from a2a.helpers import get_stream_response_text, new_text_message
 from a2a.types import Role, SendMessageRequest
 from a2a.utils.errors import A2AError
@@ -150,13 +152,18 @@ async def askEdgeAgent(message: str) -> str:
 
         async with httpx.AsyncClient(verify=sslContext, timeout=settings.cloud_edge_timeout) as httpClient:
             reply = await sendToEdgeAgent(message, settings.cloud_edge_url, httpClient)
-    except (A2AError, httpx.HTTPError, OSError) as error:
-        # An unreachable edge agent (cable unplugged, server not running, missing certs) is
-        # reported back to the chat model as the tool's result instead of crashing the turn -
-        # it can then tell the operator what went wrong
+    except (A2AClientError, httpx.HTTPError, OSError) as error:
+        # No reply at all (cable unplugged, server not running, missing certs, timeout)
+        # Reported back to the chat model as the tool's result instead of crashing the turn, so it can tell the operator
         print(f"Edge agent call failed: {error}")
 
         return f"The edge agent couldn't be reached: {error}"
+    except A2AError as error:
+        # Reached the edge agent, but it failed while answering (ex. Gemma crashed or ran out of memory)
+        # Has to come after the branch above - A2AClientError is also an A2AError
+        print(f"Edge agent returned an error: {error}")
+
+        return f"The edge agent was reached but failed to answer: {error}"
 
     logger.debug(f"Edge agent replied: {reply!r}")
 

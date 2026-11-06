@@ -18,6 +18,7 @@ import importlib
 import ssl
 from types import SimpleNamespace
 import httpx
+from a2a.client.errors import A2AClientTimeoutError
 from langchain_core.messages import AIMessage, HumanMessage
 import capstone.cloud_agent.cloud_agent as agent
 from capstone.edge_agent.edge_agent import EdgeSettings, buildGraph as buildEdgeGraph
@@ -75,15 +76,27 @@ class FakeEdgeModel:
         return AIMessage(content=f"edge echo: {messages[-1].content}")
 
 
-def edgeHttpClient() -> httpx.AsyncClient:
+class FailingEdgeModel:
+    """
+    Stand-in for the edge agent's Gemma chat model that always fails (ex. Gemma out of memory)
+    """
+
+    def invoke(self, messages):
+        raise RuntimeError("simulated Gemma failure")
+
+
+def edgeHttpClient(edgeModel=None) -> httpx.AsyncClient:
     """
     Build an HTTP client wired straight into an in-process edge agent server app
 
-    - The app runs the real A2A routes and executor, with FakeEdgeModel in place of Gemma
+    - The app runs the real A2A routes and executor, with a fake model in place of Gemma
+
+    Args:
+        edgeModel: Stands in for Gemma (FakeEdgeModel when not given)
     """
 
     edgeSettings = EdgeSettings(_env_file=None)
-    edgeApp = buildEdgeApp(edgeSettings, buildEdgeGraph(FakeEdgeModel()))
+    edgeApp = buildEdgeApp(edgeSettings, buildEdgeGraph(edgeModel or FakeEdgeModel()))
 
     return httpx.AsyncClient(transport=httpx.ASGITransport(app=edgeApp))
 
@@ -292,6 +305,44 @@ def test_ask_edge_agent_reports_an_unreachable_edge_agent(monkeypatch):
 
     assert ("couldn't be reached" in result)
     assert ("connection refused" in result)
+
+
+def test_ask_edge_agent_reports_an_a2a_timeout_as_unreachable(monkeypatch):
+    """
+    A2A client-side failures (ex. a timeout) should still read as "couldn't be reached"
+    """
+
+    async def timedOut(text, edgeUrl, httpClient):
+        raise A2AClientTimeoutError("Client Request timed out")
+
+    monkeypatch.setattr(agent, "buildSslContext", lambda path: ssl.create_default_context())
+    monkeypatch.setattr(agent, "sendToEdgeAgent", timedOut)
+
+    result = asyncio.run(agent.askEdgeAgent.ainvoke({"message": "hi"}))
+
+    assert ("couldn't be reached" in result)
+    assert ("timed out" in result)
+
+
+def test_ask_edge_agent_reports_an_edge_side_failure_as_reached(monkeypatch):
+    """
+    A failure on the edge agent's side (ex. Gemma crashing) should say the edge agent was reached
+    """
+
+    realSendToEdgeAgent = agent.sendToEdgeAgent
+
+    async def failingEdge(text, edgeUrl, httpClient):
+        async with edgeHttpClient(FailingEdgeModel()) as edgeClient:
+            return await realSendToEdgeAgent(text, edgeUrl, edgeClient)
+
+    monkeypatch.setattr(agent, "buildSslContext", lambda path: ssl.create_default_context())
+    monkeypatch.setattr(agent, "sendToEdgeAgent", failingEdge)
+
+    result = asyncio.run(agent.askEdgeAgent.ainvoke({"message": "hi"}))
+
+    assert ("was reached but failed to answer" in result)
+    assert ("couldn't be reached" not in result)
+    assert ("simulated Gemma failure" in result)
 
 
 def test_ask_edge_agent_uses_configured_url_and_timeout(monkeypatch):

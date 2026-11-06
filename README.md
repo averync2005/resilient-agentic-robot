@@ -319,7 +319,7 @@ If the cloud agent says the edge agent couldn't be reached, the error text says 
 - `certs/ca.crt` is missing on the laptop.
 - The Jetson's certificate came from a different `make-certs` run than the laptop's `ca.crt`.
 - `EDGE_PUBLIC_URL` is wrong. The cloud agent fetches the agent card from `CLOUD_EDGE_URL`, but then sends messages to whatever address the card advertises. A wrong advertised address shows up only as "All connection attempts failed", with no address in the message.
-- Gemma itself failed. This currently also reads "couldn't be reached", even though the link worked. Check the Jetson's terminal for the real error.
+- Not a link problem: if the reply says the edge agent "was reached but failed to answer", the link worked and the edge agent itself failed (ex. Gemma crashed or ran out of memory). The Jetson's terminal has the full error.
 
 Every address, port, and certificate path can be overridden in `.env`. See the `CLOUD_*` and `EDGE_*` entries in `.env.example`.
 
