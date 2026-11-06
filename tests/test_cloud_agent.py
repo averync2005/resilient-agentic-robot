@@ -18,7 +18,7 @@ import importlib
 import ssl
 from types import SimpleNamespace
 import httpx
-from a2a.client.errors import A2AClientTimeoutError
+from a2a.client.errors import A2AClientError, A2AClientTimeoutError
 from langchain_core.messages import AIMessage, HumanMessage
 import capstone.cloud_agent.cloud_agent as agent
 from capstone.edge_agent.edge_agent import EdgeSettings, buildGraph as buildEdgeGraph
@@ -100,6 +100,24 @@ def edgeHttpClient(edgeModel=None) -> httpx.AsyncClient:
     edgeApp = buildEdgeApp(edgeSettings, buildEdgeGraph(edgeModel or FakeEdgeModel()))
 
     return httpx.AsyncClient(transport=httpx.ASGITransport(app=edgeApp))
+
+
+class OneHostTransport(httpx.AsyncBaseTransport):
+    """
+    Routes one host to an in-process app and fails every other host like an unreachable address
+
+    - Plain ASGITransport ignores the host, so it can't catch a card advertising the wrong address
+    """
+
+    def __init__(self, app, host):
+        self.asgiTransport = httpx.ASGITransport(app=app)
+        self.host = host
+
+    async def handle_async_request(self, request):
+        if (request.url.host != self.host):
+            raise httpx.ConnectError("All connection attempts failed", request=request)
+
+        return await self.asgiTransport.handle_async_request(request)
 
 
 
@@ -265,6 +283,26 @@ def test_send_to_edge_agent_round_trips_through_the_real_edge_server():
             return await agent.sendToEdgeAgent("hello edge", "https://192.168.10.2:8443", httpClient)
 
     assert (asyncio.run(run()) == "edge echo: hello edge")
+
+
+def test_send_to_edge_agent_names_the_advertised_address_when_it_cant_be_reached():
+    """
+    A wrong EDGE_PUBLIC_URL (card fetch works, messages don't) should name the address the card advertised
+    """
+
+    edgeSettings = EdgeSettings(_env_file=None, public_url="https://wrong-address.test:8443")
+    edgeApp = buildEdgeApp(edgeSettings, buildEdgeGraph(FakeEdgeModel()))
+
+    async def run():
+        async with httpx.AsyncClient(transport=OneHostTransport(edgeApp, "edge.test")) as httpClient:
+            return await agent.sendToEdgeAgent("hi", "https://edge.test:8443", httpClient)
+
+    try:
+        asyncio.run(run())
+    except A2AClientError as error:
+        assert ("https://wrong-address.test:8443/" in str(error))
+    else:
+        raise AssertionError("expected A2AClientError")
 
 
 

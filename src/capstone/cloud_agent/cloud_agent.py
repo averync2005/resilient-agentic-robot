@@ -30,7 +30,7 @@ import time
 from pathlib import Path
 from typing import Annotated
 import httpx
-from a2a.client import ClientConfig, create_client
+from a2a.client import A2ACardResolver, ClientConfig, create_client
 from a2a.client.errors import A2AClientError
 from a2a.helpers import get_stream_response_text, new_text_message
 from a2a.types import Role, SendMessageRequest
@@ -118,6 +118,7 @@ async def sendToEdgeAgent(text: str, edgeUrl: str, httpClient: httpx.AsyncClient
 
     - Fetches the edge agent's card from `<edgeUrl>/.well-known/agent-card.json` first
     - The card says where to send messages, so only the base URL needs configuring
+    - A failure after the card fetch names the address the card advertised (ex. a wrong EDGE_PUBLIC_URL on the Jetson)
 
     Args:
         text: The message for the edge agent
@@ -126,15 +127,25 @@ async def sendToEdgeAgent(text: str, edgeUrl: str, httpClient: httpx.AsyncClient
 
     Returns:
         The edge agent's reply text
+
+    Raises:
+        A2AClientError: If the message can't reach the address the card advertised
     """
 
     clientConfig = ClientConfig(httpx_client=httpClient, streaming=False)
     request = SendMessageRequest(message=new_text_message(text, role=Role.ROLE_USER))
     replyParts = []
 
-    async with await create_client(edgeUrl, client_config=clientConfig) as client:
-        async for response in client.send_message(request):
-            replyParts.append(get_stream_response_text(response))
+    # Card fetched separately so its advertised address is on hand for the error below
+    agentCard = await A2ACardResolver(httpClient, edgeUrl).get_agent_card()
+    advertisedUrl = agentCard.supported_interfaces[0].url
+
+    try:
+        async with await create_client(agentCard, client_config=clientConfig) as client:
+            async for response in client.send_message(request):
+                replyParts.append(get_stream_response_text(response))
+    except A2AClientError as error:
+        raise A2AClientError(f"{error.message} (sent to {advertisedUrl}, the address in the edge agent's card)") from error
 
     return "\n".join(part for part in replyParts if (part))
 

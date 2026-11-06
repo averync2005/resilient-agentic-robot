@@ -22,3 +22,6 @@ certs/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Claude Code / Cowork local settings
+.claude/
