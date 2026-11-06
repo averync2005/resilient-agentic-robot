@@ -2,17 +2,17 @@
 Tests for cloud_agent.py's graph and its A2A connection to the edge agent
 
 - Every graph/model call is mocked - nothing here makes a live network call
-- The A2A tests run the real edge agent server app in-process (httpx's ASGI transport), with
-  a fake model behind it - no sockets, no certificates, no Jetson
-- Env vars (CLOUD_AGENT_DEBUG, LLM_PROVIDER, API_KEY) are set via monkeypatch, never via
-  the developer's real .env
-- The reload-regression test near the bottom reloads the real module in place - see its
-  own docstring before adding tests that assume a particular agent.graph identity
+- The A2A tests run the real edge agent server app in-process (httpx's ASGI transport), with a fake model behind it
+- No sockets, no certificates, no Jetson
+- Env vars (CLOUD_AGENT_DEBUG, LLM_PROVIDER, API_KEY) are set via monkeypatch, never via the developer's real .env
+- The reload-regression test near the bottom reloads the real module in place
+- See its own docstring before adding tests that assume a particular agent.graph identity
 """
 
 # ---------------------------------
 # Imports
 # ---------------------------------
+
 import asyncio
 import importlib
 import ssl
@@ -33,8 +33,10 @@ from capstone.edge_agent.edge_agent_server import buildApp as buildEdgeApp
 
 class FakeLLM:
     """
-    Stand-in for `llmWithTools` - records every call so tests can inspect what the graph
-    actually sent it, and replies with a distinguishable message each time
+    Stand-in for `llmWithTools`
+
+    - Records every call, so tests can inspect what the graph actually sent it
+    - Replies with a distinguishable message each time
     """
 
     def __init__(self, reply_text="mocked reply"):
@@ -49,8 +51,7 @@ class FakeLLM:
 
 class ToolCallingLLM:
     """
-    Stand-in for `llmWithTools` that calls askEdgeAgent on its first turn, then answers with
-    whatever the tool returned
+    Stand-in for `llmWithTools` that calls askEdgeAgent on its first turn, then answers with whatever the tool returned
     """
 
     def __init__(self):
@@ -161,8 +162,8 @@ def test_graph_persists_conversation_across_calls_on_same_thread(monkeypatch):
     compiled.invoke({"messages": [HumanMessage(content="first")]}, config=config)
     compiled.invoke({"messages": [HumanMessage(content="second")]}, config=config)
 
-    # By the second call, the fake LLM should have seen 3 messages: first human, first
-    # reply, second human - proof the checkpointer is actually accumulating history
+    # By the second call, the fake LLM should have seen 3 messages (first human, first reply, second human)
+    # Proof the checkpointer is actually accumulating history
     assert (len(fake_llm.calls[-1]) == 3)
 
 
@@ -202,8 +203,8 @@ def test_graph_routes_a_tool_call_through_ask_edge_agent(monkeypatch):
     monkeypatch.setattr(agent, "sendToEdgeAgent", fake_send)
 
     compiled = agent.buildGraph()
-    state = asyncio.run (
-        compiled.ainvoke (
+    state = asyncio.run(
+        compiled.ainvoke(
             {"messages": [HumanMessage(content="ping the robot")]},
             config={"configurable": {"thread_id": "tool-thread"}}
         )
@@ -277,7 +278,7 @@ def test_ask_edge_agent_reports_missing_certs_instead_of_raising(monkeypatch, tm
     No CA certificate yet should come back as the tool's result, so the chat model can explain it
     """
 
-    fake_settings = SimpleNamespace (
+    fake_settings = SimpleNamespace(
         cloud_ca_cert=str(tmp_path / "missing.crt"),
         cloud_edge_url="https://192.168.10.2:8443",
         cloud_edge_timeout=5.0
@@ -375,12 +376,10 @@ def test_ask_edge_agent_uses_configured_url_and_timeout(monkeypatch):
 
 def test_logger_handlers_dont_duplicate_across_reload(monkeypatch):
     """
-    Gradio's reload CLI re-executes this module's top-level code multiple times in one
-    process - reloading with CLOUD_AGENT_DEBUG set must not stack a new handler onto the
-    shared "cloud_agent" logger each time, or every log line duplicates
-
-    Reloads the real capstone.cloud_agent.cloud_agent module, rebuilding its graph in place -
-    keep this isolated from tests that assume a particular agent.graph identity
+    - Gradio's reload CLI re-executes this module's top-level code multiple times in one process
+    - Reloading with CLOUD_AGENT_DEBUG set must not stack a new handler onto the shared "cloud_agent" logger each time, or every log line duplicates
+    - Reloads the real capstone.cloud_agent.cloud_agent module, rebuilding its graph in place
+    - Keep this isolated from tests that assume a particular agent.graph identity
     """
 
     monkeypatch.setenv("CLOUD_AGENT_DEBUG", "1")

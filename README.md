@@ -19,8 +19,8 @@ Both agents are LangGraph agents. They talk to each other over A2A (Agent-to-Age
 
 **Right now:**
 
-- **Cloud agent:** a person types into a web chat window, and a LangGraph-backed agent running on Gemini replies, with memory of the conversation so far. When the person asks for the edge agent, the Jetson, or the robot, Gemini calls its `askEdgeAgent` tool, which sends a message to the edge agent over A2A and returns its reply
-- **Edge agent:** runs an HTTPS A2A server on the Jetson (`edge-agent-serve`). Each incoming message is answered by Gemma 4 through a small LangGraph graph, with no memory between messages. A terminal chat (`edge-agent`) is still there for talking to Gemma directly on the Jetson
+- **Cloud agent:** a person types into a web chat window, and a LangGraph-backed agent running on Gemini replies, with memory of the conversation so far. When the person asks for the edge agent, the Jetson, or the robot, Gemini calls its `askEdgeAgent` tool, which sends a message to the edge agent over A2A and returns its reply.
+- **Edge agent:** runs an HTTPS A2A server on the Jetson (`edge-agent-serve`). Each incoming message is answered by Gemma 4 through a small LangGraph graph, with no memory between messages. A terminal chat (`edge-agent`) is still there for talking to Gemma directly on the Jetson.
 
 Neither agent generates robot action plans or moves a robot yet. Those come later in the two-semester schedule (see the project proposal for the full timeline).
 
@@ -31,16 +31,17 @@ Neither agent generates robot action plans or moves a robot yet. Those come late
 ```
 src/capstone/
     __init__.py               Package docstring (a short version of this README, read by tools that
-                              inspect the package)
+                              inspect the package).
     certificates.py           `make-certs`: creates the project's private certificate authority (CA) and
                               the Jetson's HTTPS server certificate, signed by it (see "Connecting the
                               two agents").
     cloud_agent/
+        __init__.py             Subpackage docstring listing the modules below.
         agent_configuration.py  The cloud agent's Settings (reads .env into a validated object: LLM
                                 provider, model, API key, edge agent URL, CA path) and getChatModel()
                                 (builds a LangChain chat model from Settings). This is the ONE place that
                                 knows about specific LLM vendor SDKs. Everything else calls
-                                getChatModel() instead of importing e.g. langchain_google_genai directly.
+                                getChatModel() instead of importing ex. langchain_google_genai directly.
                                 That is what "model-agnostic" means in practice: swapping providers
                                 touches this file and .env, nothing else.
         cloud_agent.py          The LangGraph conversational graph (chatbot node, tools node,
@@ -49,6 +50,7 @@ src/capstone/
         web_ui.py               The Gradio web window. main() is the `cloud-agent` command's entry point.
                                 dev() is `cloud-agent-dev`'s (same app, auto-reloads on source changes).
     edge_agent/
+        __init__.py             Subpackage docstring listing the modules below.
         edge_agent.py           EdgeSettings (EDGE_* variables from .env, all optional), startup of the
                                 local model server, the edge agent's LangGraph graph (Gemma via
                                 ChatOpenAI), a streaming terminal chat (main(), the `edge-agent` command),
@@ -56,8 +58,8 @@ src/capstone/
         edge_agent_card.py      The A2A agent card: who the edge agent is, its skills, and where to reach it.
         edge_agent_server.py    The HTTPS A2A server (serve(), the `edge-agent-serve` command) and the
                                 executor that answers each message with the graph.
-tests/                        One pytest file per module above (test_<module>.py)
-pyproject.toml                Project metadata, dependency list, and the six CLI commands, managed by uv
+tests/                        One pytest file per module above (test_<module>.py).
+pyproject.toml                Project metadata, dependency list, and the six CLI commands, managed by uv.
 .env.example                  Template for the .env file you create locally. .env itself is git-ignored,
                               so real API keys are never committed.
 certs/                        Created by `uv run make-certs`. Git-ignored, so keys are never committed.
@@ -300,7 +302,7 @@ What matters is that there is only one CA. Running `make-certs` on both machines
 ### Running both agents
 
 1. On the **Jetson**: `uv run edge-agent-serve`. This starts the `gemma` container if needed, then listens on port 8443 (on every network, or only on `EDGE_A2A_HOST` if set). Wait for the line `Edge agent A2A server listening on ...` before going on. The first load can take a few minutes. Every message it receives and every reply it sends is logged to the terminal.
-2. On the **laptop**: `uv run cloud-agent`, open the chat window, and ask for the edge agent, e.g. "Ask the edge agent if it's online."
+2. On the **laptop**: `uv run cloud-agent`, open the chat window, and ask for the edge agent, ex. "Ask the edge agent if it's online."
 
 It worked if the Jetson's terminal logs `Received: ...` and then `Replying: ...`. If Gemini answers but nothing is logged, it answered without calling `askEdgeAgent`. On 11/5/26 over USB-C, Gemma took under a second from `Received` to `Replying`.
 
@@ -344,4 +346,4 @@ Google AI Studio has a free tier, which matters for a two-person capstone budget
 uv add <package-name>
 ```
 
-Add `--dev` for a development-only dependency (like `pytest`), e.g. `uv add --dev <package-name>`. This updates `pyproject.toml` and `uv.lock` automatically. Commit both files after running it.
+Add `--dev` for a development-only dependency (like `pytest`), ex. `uv add --dev <package-name>`. This updates `pyproject.toml` and `uv.lock` automatically. Commit both files after running it.

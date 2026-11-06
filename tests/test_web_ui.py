@@ -8,6 +8,7 @@ Tests for web_ui.py's conversation helpers, Gradio window, and CLI entry points
 # ---------------------------------
 # Imports
 # ---------------------------------
+
 import asyncio
 import gradio as gr
 import capstone.cloud_agent.web_ui as ui
@@ -100,7 +101,7 @@ def test_extract_text_joins_text_blocks_from_a_list():
 
 def test_extract_text_skips_non_text_blocks():
     """
-    Non-text blocks (e.g. reasoning signatures) should be dropped, not included in the result
+    Non-text blocks (ex. reasoning signatures) should be dropped, not included in the result
     """
 
     content = [

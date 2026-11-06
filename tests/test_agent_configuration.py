@@ -1,15 +1,14 @@
 """
 Tests for agent_configuration.py's Settings loading and chat-model construction
 
-- Every test sets environment variables via pytest's monkeypatch fixture, never relying on
-  whatever happens to be in the developer's real .env file
-- No test makes a live network call - getChatModel() only constructs a client object,
-  it never invokes it
+- Every test sets environment variables via pytest's monkeypatch fixture, never relying on the developer's real .env file
+- No test makes a live network call (getChatModel() only constructs a client object, never invokes it)
 """
 
 # ---------------------------------
 # Imports
 # ---------------------------------
+
 import pytest
 from capstone.cloud_agent.agent_configuration import getSettings, getChatModel
 

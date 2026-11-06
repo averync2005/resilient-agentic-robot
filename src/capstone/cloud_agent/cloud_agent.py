@@ -22,6 +22,7 @@ Web window:
 # ---------------------------------
 # Imports
 # ---------------------------------
+
 import logging
 import os
 import ssl
@@ -38,6 +39,7 @@ from langchain_core.tools import tool
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
+from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 from typing_extensions import TypedDict
 from capstone.cloud_agent.agent_configuration import getSettings, getChatModel
@@ -49,15 +51,14 @@ from capstone.cloud_agent.agent_configuration import getSettings, getChatModel
 # Debug logging
 # ---------------------------------
 
-# Only on when CLOUD_AGENT_DEBUG is set, which only web_ui.dev() ever sets (for its own
-# subprocess) - cloud-agent never turns this on. Only affects this package's own logger,
-# not third-party library logging, and only ever prints to the terminal (a plain
-# StreamHandler), never to a file
+# Only on when CLOUD_AGENT_DEBUG is set (only web_ui.dev() sets it, for its own subprocess)
+# cloud-agent never turns this on
+# Only affects this package's own logger, not third-party library logging
+# Only ever prints to the terminal (a plain StreamHandler), never to a file
 logger = logging.getLogger("cloud_agent")
 
-# getLogger("cloud_agent") returns the SAME logger object every time, even across a
-# reload re-executing this module's top-level code - without the `not logger.handlers`
-# guard, each reload would stack another handler onto it, duplicating every log line
+# getLogger("cloud_agent") returns the SAME logger object every time, even when a reload re-executes this module's top-level code
+# Without the `not logger.handlers` guard, each reload would stack another handler onto it, duplicating every log line
 if (os.environ.get("CLOUD_AGENT_DEBUG") and not logger.handlers):
     handler = logging.StreamHandler()
     handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
@@ -103,7 +104,7 @@ def buildSslContext(caCertPath: str) -> ssl.SSLContext:
     """
 
     if (not Path(caCertPath).is_file()):
-        raise FileNotFoundError (
+        raise FileNotFoundError(
             f"CA certificate not found at '{caCertPath}'. "
             "Generate it with `uv run make-certs` (see README.md, 'Connecting the two agents')"
         )
@@ -199,7 +200,7 @@ def chatbot(state: State) -> State:
 # Compiling the graph
 # ---------------------------------
 
-def buildGraph():
+def buildGraph() -> CompiledStateGraph:
     """
     Wire up the chatbot/tools graph with a memory checkpointer
 

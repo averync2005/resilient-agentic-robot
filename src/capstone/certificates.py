@@ -31,6 +31,7 @@ Running it (from the project root, on whichever machine holds the CA):
 # ---------------------------------
 # Imports
 # ---------------------------------
+
 import argparse
 import datetime
 import ipaddress
@@ -71,7 +72,7 @@ def createCa() -> tuple[x509.Certificate, ec.EllipticCurvePrivateKey]:
     caName = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Capstone Project CA")])
     now = datetime.datetime.now(datetime.timezone.utc)
 
-    caKeyUsage = x509.KeyUsage (
+    caKeyUsage = x509.KeyUsage(
         digital_signature=False,
         content_commitment=False,
         key_encipherment=False,
@@ -125,14 +126,14 @@ def createServerCert(caCert: x509.Certificate, caKey: ec.EllipticCurvePrivateKey
     serverKey = ec.generate_private_key(ec.SECP256R1())
     now = datetime.datetime.now(datetime.timezone.utc)
 
-    subjectAltNames = x509.SubjectAlternativeName ([
+    subjectAltNames = x509.SubjectAlternativeName([
         x509.IPAddress(ipaddress.ip_address(ip)),
         x509.IPAddress(ipaddress.ip_address("127.0.0.1")),
         x509.DNSName(hostname),
         x509.DNSName("localhost")
     ])
 
-    serverKeyUsage = x509.KeyUsage (
+    serverKeyUsage = x509.KeyUsage(
         digital_signature=True,
         content_commitment=False,
         key_encipherment=False,
@@ -183,7 +184,7 @@ def writeKey(path: Path, key: ec.EllipticCurvePrivateKey) -> None:
     Write an unencrypted private key to a PEM file (unencrypted so the server can start unattended)
     """
 
-    path.write_bytes (
+    path.write_bytes(
         key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())
     )
 

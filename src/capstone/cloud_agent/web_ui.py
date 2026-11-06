@@ -12,8 +12,8 @@ Development:
 - `dev()` launches the same web window through Gradio's own auto-reload CLI
 - Watches the whole src/ tree, so any source change restarts the running app
 - Registered as the `cloud-agent-dev` CLI command in `pyproject.toml`
-- Also turns on debug logging (timing for each reply, graph build time, edge agent replies) - `cloud-agent`
-  never does, since `dev()` is the only place CLOUD_AGENT_DEBUG gets set
+- Also turns on debug logging (timing for each reply, graph build time, edge agent replies)
+- `cloud-agent` never does (`dev()` is the only place CLOUD_AGENT_DEBUG gets set)
 - Logs print to the terminal only, never to a file
 - Run it with:
     uv run cloud-agent-dev
@@ -22,6 +22,7 @@ Development:
 # ---------------------------------
 # Imports
 # ---------------------------------
+
 import os
 import subprocess
 import time
@@ -48,14 +49,14 @@ def newThreadId() -> str:
     return str(uuid.uuid4())
 
 
-def extractText(content) -> str:
+def extractText(content: str | list[dict]) -> str:
     """
     Pull plain text out of a chat message's content, whichever shape it comes in
 
     Args:
-        content: `message.content` - some providers (Gemini 3 included) return a list of
-            content blocks instead of a plain string, mixing text blocks with non-text
-            extras like reasoning signatures
+        content: `message.content`
+            - Some providers (Gemini 3 included) return a list of content blocks instead of a plain string
+            - The list mixes text blocks with non-text extras like reasoning signatures
 
     Returns:
         The message's visible text, with any non-text blocks dropped
@@ -94,14 +95,13 @@ async def respond(message: str, history: list, threadId: str) -> str:
     logger.debug(f"Thread {threadId!r} - received: {message!r}")
 
     try:
-        state = await graph.ainvoke (
+        state = await graph.ainvoke(
             {"messages": [{"role": "user", "content": message}]},
             config=config
         )
     except Exception as error:
-        # A model-provider failure (rate limit, outage, network blip) shouldn't crash the
-        # whole chat window - show it in the transcript instead, and keep the full error
-        # on the console for debugging
+        # A model-provider failure (rate limit, outage, network blip) shouldn't crash the whole chat window
+        # Shown in the transcript instead, with the full error kept on the console for debugging
         print(f"Chat model call failed: {error}")
 
         return f"Sorry, the model call failed: {error}"
@@ -118,9 +118,9 @@ async def respond(message: str, history: list, threadId: str) -> str:
 # Web window
 # ---------------------------------
 
-# Module-level, not built inside main() - Gradio's own reload CLI (`gradio web_ui.py`)
-# needs to find this variable by import, without calling main() itself
-demo = gr.ChatInterface (
+# Module-level, not built inside main()
+# Gradio's own reload CLI (`gradio web_ui.py`) needs to find this variable by import, without calling main() itself
+demo = gr.ChatInterface(
     fn=respond,
     additional_inputs=[gr.State(newThreadId)],
     title="Cloud Agent"

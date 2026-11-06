@@ -5,8 +5,8 @@ Server:
 - A Starlette app serving two routes: the agent card (GET /.well-known/agent-card.json) and A2A JSON-RPC (POST /)
 - Runs under uvicorn over HTTPS, using the server certificate from `uv run make-certs`
 - Binds to EDGE_A2A_HOST:EDGE_A2A_PORT (0.0.0.0:8443 by default, so the Ethernet link can reach it)
-- 0.0.0.0 also means Wi-Fi, and nothing authenticates callers yet - while the Jetson is on Wi-Fi, set
-  EDGE_A2A_HOST to its address on the cable (192.168.10.2 over Ethernet, 192.168.55.1 over USB-C)
+- 0.0.0.0 also means Wi-Fi, and nothing authenticates callers yet
+- While the Jetson is on Wi-Fi, set EDGE_A2A_HOST to its address on the cable (192.168.10.2 over Ethernet, 192.168.55.1 over USB-C)
 
 Handling a message:
 - `EdgeAgentExecutor` passes the message text to the edge agent's LangGraph graph (`edge_agent.py`)
@@ -23,6 +23,7 @@ Running it:
 # ---------------------------------
 # Imports
 # ---------------------------------
+
 import logging
 import sys
 from pathlib import Path
@@ -34,12 +35,17 @@ from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.routes import create_agent_card_routes, create_jsonrpc_routes
 from a2a.server.tasks import InMemoryTaskStore
 from a2a.utils.errors import UnsupportedOperationError
+from langgraph.graph.state import CompiledStateGraph
 from starlette.applications import Starlette
 from capstone.edge_agent.edge_agent import EdgeSettings, activateServer, buildChatModel, buildGraph, generateReply
 from capstone.edge_agent.edge_agent_card import buildAgentCard
 
 
 
+
+# ---------------------------------
+# Logging
+# ---------------------------------
 
 logger = logging.getLogger("edge_agent")
 
@@ -57,7 +63,15 @@ class EdgeAgentExecutor(AgentExecutor):
     - The A2A request handler calls `execute()` once per incoming message
     """
 
-    def __init__(self, graph, settings: EdgeSettings):
+    def __init__(self, graph: CompiledStateGraph, settings: EdgeSettings) -> None:
+        """
+        Store the graph and settings every request is answered with
+
+        Args:
+            graph: A compiled graph from `edge_agent.buildGraph()`
+            settings: Supplies the system prompt
+        """
+
         self.graph = graph
         self.settings = settings
 
@@ -78,13 +92,16 @@ class EdgeAgentExecutor(AgentExecutor):
         reply = await generateReply(self.graph, self.settings, text)
         logger.info(f"Replying: {reply!r}")
 
-        await eventQueue.enqueue_event (
+        await eventQueue.enqueue_event(
             new_text_message(reply, context_id=context.context_id, task_id=context.task_id)
         )
 
     async def cancel(self, context: RequestContext, eventQueue: EventQueue) -> None:
         """
         Cancelling isn't supported - every reply is generated in one short, uninterruptible call
+
+        Raises:
+            UnsupportedOperationError: Always
         """
 
         raise UnsupportedOperationError()
@@ -96,7 +113,7 @@ class EdgeAgentExecutor(AgentExecutor):
 # Building the app
 # ---------------------------------
 
-def buildApp(settings: EdgeSettings, graph) -> Starlette:
+def buildApp(settings: EdgeSettings, graph: CompiledStateGraph) -> Starlette:
     """
     Assemble the A2A server app: agent card route plus JSON-RPC route
 
@@ -110,7 +127,7 @@ def buildApp(settings: EdgeSettings, graph) -> Starlette:
 
     agentCard = buildAgentCard(settings)
 
-    requestHandler = DefaultRequestHandler (
+    requestHandler = DefaultRequestHandler(
         agent_executor=EdgeAgentExecutor(graph, settings),
         task_store=InMemoryTaskStore(),
         agent_card=agentCard
@@ -162,7 +179,7 @@ def serve() -> None:
 
     print(f"Edge agent A2A server listening on https://{settings.a2a_host}:{settings.a2a_port} (advertised as {settings.public_url})")
 
-    uvicorn.run (
+    uvicorn.run(
         app,
         host=settings.a2a_host,
         port=settings.a2a_port,

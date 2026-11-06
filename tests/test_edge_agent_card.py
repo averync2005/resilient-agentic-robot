@@ -7,6 +7,7 @@ Tests for edge_agent_card.py's agent card
 # ---------------------------------
 # Imports
 # ---------------------------------
+
 from a2a.utils.constants import TransportProtocol
 from capstone.edge_agent.edge_agent import EdgeSettings
 from capstone.edge_agent.edge_agent_card import buildAgentCard

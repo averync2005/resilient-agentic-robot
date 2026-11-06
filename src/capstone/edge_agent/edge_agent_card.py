@@ -12,6 +12,7 @@ Agent card:
 # ---------------------------------
 # Imports
 # ---------------------------------
+
 from a2a.types import AgentCapabilities, AgentCard, AgentInterface, AgentSkill
 from a2a.utils.constants import PROTOCOL_VERSION_CURRENT, TransportProtocol
 from capstone.edge_agent.edge_agent import EdgeSettings
@@ -37,7 +38,7 @@ def buildAgentCard(settings: EdgeSettings) -> AgentCard:
         The AgentCard the A2A server publishes
     """
 
-    chatSkill = AgentSkill (
+    chatSkill = AgentSkill(
         id="chat",
         name="Local Gemma chat",
         description="Answers a message with Gemma 4 E2B, running locally on the Jetson Orin Nano (works without internet)",
@@ -46,13 +47,13 @@ def buildAgentCard(settings: EdgeSettings) -> AgentCard:
     )
 
     # Only JSON-RPC is served (see edge_agent_server.py), so it's the only interface listed
-    jsonRpcInterface = AgentInterface (
+    jsonRpcInterface = AgentInterface(
         url=settings.public_url.removesuffix("/") + "/",
         protocol_binding=TransportProtocol.JSONRPC,
         protocol_version=PROTOCOL_VERSION_CURRENT
     )
 
-    return AgentCard (
+    return AgentCard(
         name="Edge Agent",
         description="Edge tier of the resilient cloud-to-edge robotic system, running on an NVIDIA Jetson Orin Nano",
         version="0.1.0",

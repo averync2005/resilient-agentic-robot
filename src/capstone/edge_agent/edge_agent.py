@@ -40,16 +40,19 @@ Speed check:
 # ---------------------------------
 # Imports
 # ---------------------------------
+
 import subprocess
 import sys
 import time
 import urllib.error
 import urllib.request
 from typing import Annotated, NoReturn
+from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
+from langgraph.graph.state import CompiledStateGraph
 from openai import OpenAI, OpenAIError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing_extensions import TypedDict
@@ -69,7 +72,7 @@ class EdgeSettings(BaseSettings):
     - Shares the project's `.env` file with the cloud agent's settings
     """
 
-    model_config = SettingsConfigDict (
+    model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
         env_prefix="EDGE_",
@@ -152,8 +155,8 @@ def activateServer(settings: EdgeSettings) -> None:
 
     - Returns immediately if the server is already healthy (the normal case)
     - Otherwise starts the container and polls /health until the model finishes loading
-    - The container should use --restart no (see README.md) - with unless-stopped, a model that runs out of
-      memory while loading gets restarted forever, and this function only ever sees the timeout
+    - The container should use --restart no (see README.md)
+    - With unless-stopped, a model that runs out of memory while loading gets restarted forever (this function only ever sees the timeout)
     - Exits the program with instructions if the server can't be brought up
 
     Args:
@@ -166,7 +169,7 @@ def activateServer(settings: EdgeSettings) -> None:
     print(f"Model server not responding - starting the '{settings.container_name}' container...")
 
     try:
-        result = subprocess.run (
+        result = subprocess.run(
             ["docker", "start", settings.container_name],
             capture_output=True,
             text=True
@@ -187,7 +190,7 @@ def activateServer(settings: EdgeSettings) -> None:
 
         time.sleep(2)
 
-    exitWithStartInstructions (
+    exitWithStartInstructions(
         settings,
         f"Container started, but the model didn't finish loading within {settings.startup_timeout:.0f}s. "
         f"If `docker logs {settings.container_name}` shows 'out of memory', see README.md, 'Freeing memory for Gemma'"
@@ -246,7 +249,7 @@ def buildChatModel(settings: EdgeSettings) -> ChatOpenAI:
     """
 
     # llama-server doesn't check API keys, but the openai client refuses to run without one
-    return ChatOpenAI (
+    return ChatOpenAI(
         base_url=settings.base_url,
         api_key="not-needed",
         model=settings.model,
@@ -254,7 +257,7 @@ def buildChatModel(settings: EdgeSettings) -> ChatOpenAI:
     )
 
 
-def buildGraph(chatModel):
+def buildGraph(chatModel: BaseChatModel) -> CompiledStateGraph:
     """
     Wire up the edge agent's graph around a chat model
 
@@ -269,6 +272,10 @@ def buildGraph(chatModel):
     """
 
     def chatbot(state: EdgeState) -> EdgeState:
+        """
+        Run one chat-model turn and return only the model's reply, merged into the state by `add_messages`
+        """
+
         return {"messages": [chatModel.invoke(state["messages"])]}
 
     builder = StateGraph(EdgeState)
@@ -281,7 +288,7 @@ def buildGraph(chatModel):
     return builder.compile()
 
 
-async def generateReply(graph, settings: EdgeSettings, text: str) -> str:
+async def generateReply(graph: CompiledStateGraph, settings: EdgeSettings, text: str) -> str:
     """
     Answer one message with the edge agent's graph, starting from a fresh conversation
 
@@ -294,7 +301,7 @@ async def generateReply(graph, settings: EdgeSettings, text: str) -> str:
         The model's reply text
     """
 
-    state = await graph.ainvoke (
+    state = await graph.ainvoke(
         {"messages": [SystemMessage(content=settings.system_prompt), HumanMessage(content=text)]}
     )
 
@@ -320,7 +327,7 @@ def streamReply(client: OpenAI, settings: EdgeSettings, messages: list) -> str:
         The complete reply text, for appending to the conversation history
     """
 
-    stream = client.chat.completions.create (
+    stream = client.chat.completions.create(
         model=settings.model,
         messages=messages,
         stream=True,
@@ -419,7 +426,7 @@ def check() -> None:
 
     client = OpenAI(base_url=settings.base_url, api_key="not-needed")
 
-    response = client.chat.completions.create (
+    response = client.chat.completions.create(
         model=settings.model,
         messages=[{"role": "user", "content": "In two sentences, what does an edge AI agent on a robot do?"}],
         max_tokens=512,  # Room for reasoning tokens too, when EDGE_THINKING is on
@@ -445,8 +452,6 @@ def check() -> None:
 
     print(f"Prompt:     {timings['prompt_n']} tokens at {timings['prompt_per_second']:.1f} tok/s")
     print(f"Generation: {timings['predicted_n']} tokens at {timings['predicted_per_second']:.1f} tok/s")
-
-
 
 
 if (__name__ == "__main__"):

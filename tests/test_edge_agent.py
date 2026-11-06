@@ -9,6 +9,7 @@ Tests for edge_agent.py's settings, model-server activation, LangGraph agent, te
 # ---------------------------------
 # Imports
 # ---------------------------------
+
 import asyncio
 import subprocess
 import urllib.error
@@ -249,7 +250,7 @@ def test_activate_exits_with_instructions_when_docker_start_fails(monkeypatch, c
     """
 
     monkeypatch.setattr(edge, "isServerReady", lambda url: False)
-    monkeypatch.setattr (
+    monkeypatch.setattr(
         edge.subprocess, "run",
         lambda command, **kwargs: subprocess.CompletedProcess(command, 1, stdout="", stderr="permission denied")
     )
@@ -288,7 +289,7 @@ def test_activate_exits_when_model_never_finishes_loading(monkeypatch, capsys):
     """
 
     monkeypatch.setattr(edge, "isServerReady", lambda url: False)
-    monkeypatch.setattr (
+    monkeypatch.setattr(
         edge.subprocess, "run",
         lambda command, **kwargs: subprocess.CompletedProcess(command, 0, stdout="gemma", stderr="")
     )

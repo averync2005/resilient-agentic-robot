@@ -26,6 +26,7 @@ Edge agent connection:
 # ---------------------------------
 # Imports
 # ---------------------------------
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from langchain_core.language_models.chat_models import BaseChatModel
 
@@ -46,7 +47,7 @@ class Settings(BaseSettings):
     - Fields stay snake_case, since each name has to match its environment variable
     """
 
-    model_config = SettingsConfigDict (
+    model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore"
@@ -59,6 +60,7 @@ class Settings(BaseSettings):
     cloud_edge_url: str = "https://192.168.10.2:8443"  # The edge agent's A2A server (the Jetson's static IP)
     cloud_ca_cert: str = "certs/ca.crt"  # Project CA used to verify the edge agent's certificate
     cloud_edge_timeout: float = 120.0  # Seconds to wait for one edge reply (Gemma on the Jetson can be slow)
+
 
 def getSettings() -> Settings:
     """
@@ -86,22 +88,25 @@ def getChatModel(settings: Settings) -> BaseChatModel:
 
     Returns:
         A LangChain chat model ready to receive messages via `.invoke()`
+
+    Raises:
+        ValueError: If `settings.llm_provider` is unknown, or google is chosen without an API key
     """
 
     # Google AI Models
     if (settings.llm_provider == "google"):
         if (not settings.api_key):
-            raise ValueError (
+            raise ValueError(
                 "LLM_PROVIDER=google requires API_KEY to be set in the .env file. "
                 "A free-tier model key is available at `https://aistudio.google.com/apikey`"
             )
         from langchain_google_genai import ChatGoogleGenerativeAI
 
-        return ChatGoogleGenerativeAI (
+        return ChatGoogleGenerativeAI(
             model=settings.llm_model,
             google_api_key=settings.api_key
         )
 
-    raise ValueError (
+    raise ValueError(
         f"Unknown LLM_PROVIDER '{settings.llm_provider}'"
     )

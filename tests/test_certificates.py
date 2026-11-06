@@ -8,6 +8,7 @@ Tests for certificates.py's project CA and server certificate generation
 # ---------------------------------
 # Imports
 # ---------------------------------
+
 import ipaddress
 import ssl
 import sys
