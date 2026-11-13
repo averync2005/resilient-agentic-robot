@@ -19,7 +19,7 @@ Model-agnostic design:
 - Swapping providers is a configuration change only - nothing that uses the model needs to change
 
 Edge agent connection:
-- `cloud_edge_url` is where the edge agent's A2A server listens (the Jetson, over the Ethernet link)
+- `cloud_edge_url` is where the edge agent's A2A server listens (the Jetson, over the USB-C link)
 - `cloud_ca_cert` is the project CA from `uv run make-certs` - the only certificate authority the cloud agent trusts when talking to the edge agent
 """
 
@@ -57,7 +57,7 @@ class Settings(BaseSettings):
     llm_model: str = ""  # Must match an existing LLM model name (see getChatModel() below)
     api_key: str = ""
 
-    cloud_edge_url: str = "https://192.168.10.2:8443"  # The edge agent's A2A server (the Jetson's static IP)
+    cloud_edge_url: str = "https://192.168.55.1:8443"  # The edge agent's A2A server (the Jetson's address on the USB-C link)
     cloud_ca_cert: str = "certs/ca.crt"  # Project CA used to verify the edge agent's certificate
     cloud_edge_timeout: float = 120.0  # Seconds to wait for one edge reply (Gemma on the Jetson can be slow)
 

@@ -94,11 +94,11 @@ class EdgeSettings(BaseSettings):
         "running locally on an NVIDIA Jetson Orin Nano. Keep answers short and concrete."
     )
 
-    a2a_host: str = "0.0.0.0"  # Interface the A2A server binds to (0.0.0.0 = every interface, including Wi-Fi - set it to the cable's IP to keep the unauthenticated server off Wi-Fi)
+    a2a_host: str = "0.0.0.0"  # Interface the A2A server binds to (0.0.0.0 = every interface, including Wi-Fi - set it to 192.168.55.1 to keep the unauthenticated server off Wi-Fi)
 
     a2a_port: int = 8443  # Port the A2A server listens on
 
-    public_url: str = "https://192.168.10.2:8443"  # Address advertised in the agent card - where the cloud agent reaches this server
+    public_url: str = "https://192.168.55.1:8443"  # Address advertised in the agent card - where the cloud agent reaches this server
 
     tls_cert: str = "certs/edge.crt"  # Server certificate from `uv run make-certs`
 

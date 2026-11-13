@@ -4,9 +4,9 @@ The edge agent's A2A server - how the cloud agent reaches the edge agent over th
 Server:
 - A Starlette app serving two routes: the agent card (GET /.well-known/agent-card.json) and A2A JSON-RPC (POST /)
 - Runs under uvicorn over HTTPS, using the server certificate from `uv run make-certs`
-- Binds to EDGE_A2A_HOST:EDGE_A2A_PORT (0.0.0.0:8443 by default, so the Ethernet link can reach it)
+- Binds to EDGE_A2A_HOST:EDGE_A2A_PORT (0.0.0.0:8443 by default, so the USB-C link can reach it)
 - 0.0.0.0 also means Wi-Fi, and nothing authenticates callers yet
-- While the Jetson is on Wi-Fi, set EDGE_A2A_HOST to its address on the cable (192.168.10.2 over Ethernet, 192.168.55.1 over USB-C)
+- While the Jetson is on Wi-Fi, set EDGE_A2A_HOST to its address on the USB-C link (192.168.55.1)
 
 Handling a message:
 - `EdgeAgentExecutor` passes the message text to the edge agent's LangGraph graph (`edge_agent.py`)

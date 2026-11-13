@@ -27,7 +27,7 @@ def test_card_advertises_the_public_url_over_json_rpc():
     card = buildAgentCard(EdgeSettings(_env_file=None))
 
     assert (len(card.supported_interfaces) == 1)
-    assert (card.supported_interfaces[0].url == "https://192.168.10.2:8443/")
+    assert (card.supported_interfaces[0].url == "https://192.168.55.1:8443/")
     assert (card.supported_interfaces[0].protocol_binding == TransportProtocol.JSONRPC)
 
 

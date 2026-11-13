@@ -61,7 +61,7 @@ def appClient(chatModel) -> httpx.AsyncClient:
 
     app = server.buildApp(clean_settings(), buildGraph(chatModel))
 
-    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://192.168.10.2:8443")
+    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://192.168.55.1:8443")
 
 
 async def sendThroughA2A(chatModel, text: str) -> str:
@@ -72,7 +72,7 @@ async def sendThroughA2A(chatModel, text: str) -> str:
     async with appClient(chatModel) as httpClient:
         clientConfig = ClientConfig(httpx_client=httpClient, streaming=False)
 
-        async with await create_client("https://192.168.10.2:8443", client_config=clientConfig) as client:
+        async with await create_client("https://192.168.55.1:8443", client_config=clientConfig) as client:
             request = SendMessageRequest(message=new_text_message(text, role=Role.ROLE_USER))
 
             return "".join([get_stream_response_text(response) async for response in client.send_message(request)])

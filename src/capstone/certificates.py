@@ -2,7 +2,7 @@
 TLS certificates for the HTTPS link between the cloud agent (laptop) and the edge agent (Jetson)
 
 Why a project CA:
-- The Jetson sits on a direct Ethernet link with no domain name, so no public CA can issue it a certificate
+- The Jetson sits on a direct USB-C link with no domain name, so no public CA can issue it a certificate
 - Instead this script creates a small, private certificate authority (CA) just for this project
 - The CA signs the Jetson's server certificate, and the cloud agent trusts only that CA
 - Anyone without the CA's private key can't impersonate the Jetson
@@ -21,8 +21,7 @@ Running it (from the project root, on whichever machine holds the CA):
 - Registered as the `make-certs` CLI command in `pyproject.toml`
 - Run it with:
     uv run make-certs
-    uv run make-certs --ip 192.168.10.2 --hostname jetson-edge
-    uv run make-certs --ip 192.168.55.1     (the USB-C stand-in link)
+    uv run make-certs --ip 192.168.55.1 --hostname jetson-edge
 - Run on the laptop: copy edge.crt and edge.key to the Jetson's certs/ folder
 - Run on the Jetson: copy only ca.crt to the laptop's certs/ folder
 - Never run it on both machines - that makes two unrelated CAs, and the laptop rejects the Jetson's certificate
@@ -116,7 +115,7 @@ def createServerCert(caCert: x509.Certificate, caKey: ec.EllipticCurvePrivateKey
     Args:
         caCert: The project CA certificate
         caKey: The project CA private key
-        ip: The Jetson's IP on the Ethernet link (ex. 192.168.10.2)
+        ip: The Jetson's IP on the USB-C link (ex. 192.168.55.1)
         hostname: A hostname for the Jetson (ex. jetson-edge)
 
     Returns:
@@ -218,7 +217,7 @@ def makeCerts(certsDir: Path, ip: str, hostname: str) -> bool:
 
     Args:
         certsDir: Output folder, created if missing
-        ip: The Jetson's IP on the Ethernet link
+        ip: The Jetson's IP on the USB-C link
         hostname: A hostname for the Jetson
 
     Returns:
@@ -248,7 +247,7 @@ def main() -> None:
     """
 
     parser = argparse.ArgumentParser(description="Generate the project CA and the Jetson's server certificate")
-    parser.add_argument("--ip", default="192.168.10.2", help="The Jetson's IP on the Ethernet link (default: 192.168.10.2)")
+    parser.add_argument("--ip", default="192.168.55.1", help="The Jetson's IP on the USB-C link (default: 192.168.55.1)")
     parser.add_argument("--hostname", default="jetson-edge", help="A hostname for the Jetson (default: jetson-edge)")
     parser.add_argument("--out", default="certs", help="Output folder (default: certs)")
     args = parser.parse_args()

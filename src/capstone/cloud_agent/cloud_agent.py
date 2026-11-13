@@ -122,7 +122,7 @@ async def sendToEdgeAgent(text: str, edgeUrl: str, httpClient: httpx.AsyncClient
 
     Args:
         text: The message for the edge agent
-        edgeUrl: The edge agent's base URL (ex. https://192.168.10.2:8443)
+        edgeUrl: The edge agent's base URL (ex. https://192.168.55.1:8443)
         httpClient: The HTTP client to send through, already set up with TLS verification and a timeout
 
     Returns:

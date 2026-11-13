@@ -127,16 +127,16 @@ def test_settings_ignore_unprefixed_env_vars(monkeypatch):
     assert (clean_settings().model == "gemma")
 
 
-def test_settings_a2a_defaults_match_the_ethernet_setup():
+def test_settings_a2a_defaults_match_the_usb_c_setup():
     """
-    With no .env entries, the A2A server should bind every interface on 8443 and advertise the Jetson's static IP
+    With no .env entries, the A2A server should bind every interface on 8443 and advertise the Jetson's USB-C link address
     """
 
     settings = clean_settings()
 
     assert (settings.a2a_host == "0.0.0.0")
     assert (settings.a2a_port == 8443)
-    assert (settings.public_url == "https://192.168.10.2:8443")
+    assert (settings.public_url == "https://192.168.55.1:8443")
     assert ((settings.tls_cert, settings.tls_key) == ("certs/edge.crt", "certs/edge.key"))
 
 

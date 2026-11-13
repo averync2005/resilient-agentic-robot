@@ -260,7 +260,7 @@ def test_build_ssl_context_trusts_the_given_ca(tmp_path):
 
     from capstone.certificates import makeCerts
 
-    makeCerts(tmp_path, "192.168.10.2", "jetson-edge")
+    makeCerts(tmp_path, "192.168.55.1", "jetson-edge")
     context = agent.buildSslContext(str(tmp_path / "ca.crt"))
 
     assert (context.verify_mode == ssl.CERT_REQUIRED)
@@ -280,7 +280,7 @@ def test_send_to_edge_agent_round_trips_through_the_real_edge_server():
 
     async def run():
         async with edgeHttpClient() as httpClient:
-            return await agent.sendToEdgeAgent("hello edge", "https://192.168.10.2:8443", httpClient)
+            return await agent.sendToEdgeAgent("hello edge", "https://192.168.55.1:8443", httpClient)
 
     assert (asyncio.run(run()) == "edge echo: hello edge")
 
@@ -318,7 +318,7 @@ def test_ask_edge_agent_reports_missing_certs_instead_of_raising(monkeypatch, tm
 
     fake_settings = SimpleNamespace(
         cloud_ca_cert=str(tmp_path / "missing.crt"),
-        cloud_edge_url="https://192.168.10.2:8443",
+        cloud_edge_url="https://192.168.55.1:8443",
         cloud_edge_timeout=5.0
     )
     monkeypatch.setattr(agent, "settings", fake_settings)

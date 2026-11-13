@@ -13,7 +13,7 @@ The system splits its reasoning across two tiers that talk to each other over a 
 | Job | Turn a natural-language command into an ordered sequence of robot actions | Receive that sequence, check that it is safe, and move the robot arm via ROS 2 |
 | Without internet | Unavailable | Keeps working (the local model needs no network) |
 
-Both agents are LangGraph agents. They talk to each other over A2A (Agent-to-Agent) protocol, using Google's `a2a-sdk`, over HTTPS on a direct cable between the laptop and the Jetson (Ethernet by design, or the Jetson's USB-C port as a stand-in). See "Connecting the two agents" below. For now the A2A "contract" is plain text: the cloud agent sends a message and the edge agent replies. The structured robot-action contract will be documented here once it exists.
+Both agents are LangGraph agents. They talk to each other over A2A (Agent-to-Agent) protocol, using Google's `a2a-sdk`, over HTTPS on the USB-C link between the laptop and the Jetson. See "Connecting the two agents" below. For now the A2A "contract" is plain text: the cloud agent sends a message and the edge agent replies. The structured robot-action contract will be documented here once it exists.
 
 ## What this code does, in plain English
 
@@ -58,6 +58,10 @@ src/capstone/
         edge_agent_card.py      The A2A agent card: who the edge agent is, its skills, and where to reach it.
         edge_agent_server.py    The HTTPS A2A server (serve(), the `edge-agent-serve` command) and the
                                 executor that answers each message with the graph.
+    arm_controller/
+        __init__.py             Subpackage docstring listing the modules below.
+        arm_driver.py           ArmDriver: moves, reads, and stops the xArm 1S's six servos over USB, in
+                                degrees, with per-servo limits (SERVO_LIMITS). openArm() connects to it.
 tests/                        One pytest file per module above (test_<module>.py).
 pyproject.toml                Project metadata, dependency list, and the six CLI commands, managed by uv.
 .env.example                  Template for the .env file you create locally. .env itself is git-ignored,
@@ -216,53 +220,22 @@ Practical notes:
 
 ## Connecting the two agents
 
-The cloud agent runs on a laptop, and the edge agent runs on the Jetson. They are joined by a direct Ethernet cable and talk A2A over HTTPS:
+The cloud agent runs on a laptop, and the edge agent runs on the Jetson. They are joined by the USB-C link (see "Working on the Jetson from a laptop") and talk A2A over HTTPS:
 
 ```text
-Laptop (192.168.10.1)                                    Jetson (192.168.10.2)
+Laptop (192.168.55.100)                                  Jetson (192.168.55.1)
   uv run cloud-agent                                       uv run edge-agent-serve
   Gemini decides to call askEdgeAgent  --- HTTPS :8443 --> A2A server -> LangGraph -> Gemma 4
                                        <-- reply --------
 ```
 
-- The cloud agent first fetches the edge agent's **agent card** from `https://192.168.10.2:8443/.well-known/agent-card.json`. The card says who the edge agent is, what it can do (one `chat` skill for now), and where to send messages.
+- The cloud agent first fetches the edge agent's **agent card** from `https://192.168.55.1:8443/.well-known/agent-card.json`. The card says who the edge agent is, what it can do (one `chat` skill for now), and where to send messages.
 - It then sends the message as an A2A JSON-RPC request and waits for the complete reply. Gemma on the Jetson can take a while, so the timeout is 120 seconds (`CLOUD_EDGE_TIMEOUT`).
 - The edge agent is stateless. Each message is answered on its own, and the cloud agent's own memory is what holds the conversation.
-- The link is encrypted, but there is no authentication yet. Anything that can reach port 8443 can send the edge agent messages. The server listens on every network the Jetson is on by default (`EDGE_A2A_HOST=0.0.0.0`), so while the Jetson is also on Wi-Fi, set `EDGE_A2A_HOST` to the Jetson's own address on the cable (`192.168.10.2`, or `192.168.55.1` over USB-C). Then only the laptop can reach it.
+- The link is encrypted, but there is no authentication yet. Anything that can reach port 8443 can send the edge agent messages. The server listens on every network the Jetson is on by default (`EDGE_A2A_HOST=0.0.0.0`), so while the Jetson is also on Wi-Fi, set `EDGE_A2A_HOST=192.168.55.1`. Then only the laptop can reach it.
+- A2A first ran laptop-to-Jetson over the USB-C link on 11/5/26. The defaults (`CLOUD_EDGE_URL`, `EDGE_PUBLIC_URL`, and the `make-certs` IP) all point at `192.168.55.1`, so no `.env` entries are needed for the link itself.
 
-### One-time setup: static IPs on the Ethernet link
-
-There is no router on a direct cable, so each side needs a fixed address. Neither side gets a gateway, so both keep their internet through Wi-Fi.
-
-A laptop without an Ethernet port needs a USB Ethernet adapter that Windows actually recognizes. It should appear in `Get-NetAdapter` once plugged in. If it doesn't, no driver will fix it: try another USB port, then another adapter. The Jetson's side can show a live link (`cat /sys/class/net/enP8p1s0/carrier` prints `1`) even when Windows sees nothing. Until the adapter works, use the USB-C link below.
-
-**Laptop (Windows):** open Settings > Network & internet > Ethernet > IP assignment > Edit. Choose Manual, turn on IPv4, and set IP address `192.168.10.1` and subnet mask `255.255.255.0`. Leave the gateway and DNS blank. Or, from an administrator PowerShell:
-
-```powershell
-New-NetIPAddress -InterfaceAlias "Ethernet" -IPAddress 192.168.10.1 -PrefixLength 24
-```
-
-**Jetson:** find the Ethernet interface name with `nmcli device` (`enP8p1s0` on our board), then:
-
-```bash
-sudo nmcli con add type ethernet ifname <interface> con-name capstone-link ipv4.method manual ipv4.addresses 192.168.10.2/24
-sudo nmcli con up capstone-link
-```
-
-Run `nmcli con show` first. Running `nmcli con add` a second time creates a duplicate profile with the same name.
-
-Check the link from the laptop with `ping 192.168.10.2`.
-
-### Stand-in link: USB-C
-
-Until the Ethernet link works, the USB-C link from "Working on the Jetson from a laptop" carries A2A just as well. A2A first ran laptop-to-Jetson over it on 11/5/26. Only the addresses change: the Jetson is `192.168.55.1` and the laptop is `192.168.55.100`. Issue the Jetson's certificate for that address (below), and set these in `.env`:
-
-| Machine | Setting |
-|---|---|
-| Jetson | `EDGE_A2A_HOST=192.168.55.1` and `EDGE_PUBLIC_URL=https://192.168.55.1:8443` |
-| Laptop | `CLOUD_EDGE_URL=https://192.168.55.1:8443` |
-
-To switch back to Ethernet, change the three values to the `192.168.10.x` addresses and reissue the certificate with `--ip 192.168.10.2`.
+**Alternate link (Ethernet):** the Jetson also has an Ethernet port. To use it, give both sides static addresses on the cable, reissue the certificate with `uv run make-certs --ip <jetson address>`, and set `CLOUD_EDGE_URL` and `EDGE_PUBLIC_URL` to that address in `.env`.
 
 ### One-time setup: HTTPS certificates
 
@@ -280,17 +253,17 @@ This writes four files to `certs/` (git-ignored):
 |---|---|---|
 | `ca.crt` | Laptop | The cloud agent checks the Jetson's certificate against this (`CLOUD_CA_CERT`) |
 | `ca.key` | Laptop | Signs certificates. Never copy it anywhere |
-| `edge.crt` | Jetson | The Jetson's server certificate, valid for `192.168.10.2` and `localhost` (`EDGE_TLS_CERT`) |
+| `edge.crt` | Jetson | The Jetson's server certificate, valid for `192.168.55.1` and `localhost` (`EDGE_TLS_CERT`) |
 | `edge.key` | Jetson | The server certificate's private key (`EDGE_TLS_KEY`) |
 
 Copy the server pair into the repo on the Jetson:
 
 ```bash
-ssh <user>@192.168.10.2 "mkdir -p <repo>/certs"
-scp certs/edge.crt certs/edge.key <user>@192.168.10.2:<repo>/certs/
+ssh <user>@192.168.55.1 "mkdir -p <repo>/certs"
+scp certs/edge.crt certs/edge.key <user>@192.168.55.1:<repo>/certs/
 ```
 
-If the Jetson's IP changes, run `uv run make-certs --ip <new ip>` and copy the two files again. The CA is reused, so the laptop doesn't need anything new. For the USB-C link, that's `uv run make-certs --ip 192.168.55.1`.
+If the Jetson's IP changes, run `uv run make-certs --ip <new ip>` and copy the two files again. The CA is reused, so the laptop doesn't need anything new.
 
 **Where our CA actually lives:** on 11/5/26 the CA was created on the Jetson, not the laptop, so `ca.key` is on the Jetson and certificates get issued there. That works the same way with the roles reversed: run `make-certs` on the Jetson, and copy only `ca.crt` to the laptop:
 ```powershell
@@ -304,7 +277,7 @@ What matters is that there is only one CA. Running `make-certs` on both machines
 1. On the **Jetson**: `uv run edge-agent-serve`. This starts the `gemma` container if needed, then listens on port 8443 (on every network, or only on `EDGE_A2A_HOST` if set). Wait for the line `Edge agent A2A server listening on ...` before going on. The first load can take a few minutes. Every message it receives and every reply it sends is logged to the terminal.
 2. On the **laptop**: `uv run cloud-agent`, open the chat window, and ask for the edge agent, ex. "Ask the edge agent if it's online."
 
-It worked if the Jetson's terminal logs `Received: ...` and then `Replying: ...`. If Gemini answers but nothing is logged, it answered without calling `askEdgeAgent`. On 11/5/26 over USB-C, Gemma took under a second from `Received` to `Replying`.
+It worked if the Jetson's terminal logs `Received: ...` and then `Replying: ...`. If Gemini answers but nothing is logged, it answered without calling `askEdgeAgent`. On 11/5/26, Gemma took under a second from `Received` to `Replying`.
 
 **Setting variables on Windows:** the bash form `CLOUD_EDGE_URL=... uv run cloud-agent` doesn't work in PowerShell. Put the setting in `.env`, or set it on its own line first:
 ```powershell
@@ -316,7 +289,7 @@ uv run cloud-agent
 
 If the cloud agent says the edge agent couldn't be reached, the error text says why. The usual causes are:
 
-- The cable or a static IP isn't set up. Check with `ping 192.168.10.2` (or `192.168.55.1` over USB-C).
+- The USB-C link is down, or the laptop's fixed address on the NCM adapter is missing. Check with `ping 192.168.55.1`.
 - `edge-agent-serve` isn't running, or hasn't finished loading Gemma.
 - `certs/ca.crt` is missing on the laptop.
 - The Jetson's certificate came from a different `make-certs` run than the laptop's `ca.crt`.
@@ -325,12 +298,46 @@ If the cloud agent says the edge agent couldn't be reached, the error text says 
 
 Every address, port, and certificate path can be overridden in `.env`. See the `CLOUD_*` and `EDGE_*` entries in `.env.example`.
 
+## The robot arm (xArm 1S)
+
+The arm is a Hiwonder xArm 1S. Its controller board (on the bottom plate) takes a 7.5 V supply on the barrel jack and talks to a computer over its micro-USB port. The board shows up as a USB HID device, not a serial port. `arm_controller/arm_driver.py` drives it through the `xarm` package:
+
+```python
+from capstone.arm_controller.arm_driver import openArm
+
+arm = openArm()
+print(arm.readBatteryVoltage(), arm.readPositions())
+arm.moveServos({6: 30.0, 4: -15.0}, durationMs=1500)
+arm.stop()
+```
+
+- **Units:** degrees from each servo's center, -120 to 120. Servo IDs are 1 gripper, 2 wrist rotation, 3 wrist, 4 elbow, 5 shoulder, 6 base.
+- **Limits:** every move is checked against `SERVO_LIMITS` before anything is sent. They start at ±110 degrees for every servo, 10 degrees inside the physical range. Narrow each one once it's measured on the real arm.
+- **Move time:** `durationMs` is how long the move takes to arrive (1000 ms by default). Longer is slower and gentler on the arm and the supply.
+- **`stop()`** holds every servo where it is. **`servosOff()`** makes the arm go limp, so support it first.
+- Close Hiwonder's PC software first. Only one program can have the board open at a time.
+- **On the Jetson (Linux),** a new USB device is readable only by root by default, so `openArm()` fails with "open failed". A udev rule (below) gives the `plugdev` group read/write access to the board. It's untested so far.
+
+**One-time setup on the Jetson: the udev rule.** udev is the Linux service that creates a device file in `/dev` each time something is plugged in. A rule file tells it which permissions to give a matching device. The `xarm` package opens the board through libusb (a library for raw USB access) rather than `/dev/hidraw*`, so the rule covers both device types:
+
+```bash
+sudo tee /etc/udev/rules.d/99-xarm.rules > /dev/null <<'EOF'
+# Hiwonder xArm 1S controller board (USB vendor 0483, product 5750)
+SUBSYSTEM=="usb", ATTRS{idVendor}=="0483", ATTRS{idProduct}=="5750", MODE="0660", GROUP="plugdev"
+KERNEL=="hidraw*", ATTRS{idVendor}=="0483", ATTRS{idProduct}=="5750", MODE="0660", GROUP="plugdev"
+EOF
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+```
+
+Then check that your user is in `plugdev` with `groups`. If it isn't, run `sudo usermod -aG plugdev $USER` and log out and back in. Unplug and replug the arm, then check with `lsusb -d 0483:5750` (the board should be listed) and `uv run python -c "import hid; print(hid.enumerate(0x0483, 0x5750))"` (should print one entry, not `[]`).
+
 ## Running the tests
 
 ```bash
 uv run pytest
 ```
-No test makes a live network call. Model, docker, and HTTP calls are all mocked, so the tests run without the `gemma` container, the Jetson, or an internet connection. The A2A tests run the real edge agent server in-process, through httpx's ASGI transport, with a fake model behind it, so the cloud agent's A2A client is tested against the real server code.
+No test makes a live network call or needs the arm. Model, docker, HTTP, and arm calls are all mocked, so the tests run without the `gemma` container, the Jetson, or an internet connection. The A2A tests run the real edge agent server in-process, through httpx's ASGI transport, with a fake model behind it, so the cloud agent's A2A client is tested against the real server code.
 
 - `test_agent_configuration.py`, the `test_edge_agent*.py` files, and `test_certificates.py` never depend on your real `.env`. They set values directly, via pytest's `monkeypatch` fixture or `_env_file=None`.
 - `test_cloud_agent.py` and `test_web_ui.py` import `cloud_agent.py`, which builds the chat model at import time, so they need the cloud agent's `.env` settings filled in. The key is never used, so placeholder values work on a machine without a real `.env`: `LLM_PROVIDER=google LLM_MODEL=gemini-2.5-flash API_KEY=dummy uv run pytest`.

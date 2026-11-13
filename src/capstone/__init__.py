@@ -5,6 +5,7 @@ Package layout:
 - Both tiers live in this package, as subpackages
 - The tiers communicate over HTTPS via A2A (Agent-to-Agent) protocol
 - TLS certificates for the link come from `certificates.py` (the `make-certs` command)
+- The robot arm driver lives in `arm_controller/`
 - See the top-level README.md for setup instructions, current status, and what each module is responsible for
 
 Cloud agent (`cloud_agent/`):
@@ -18,6 +19,10 @@ Edge agent (`edge_agent/`):
 - Receives commands from the cloud agent
 - Validates them against safety rules before any hardware moves
 - Executes them via ROS 2
+
+Arm controller (`arm_controller/`):
+- Drives the Hiwonder xArm 1S over its controller board's micro-USB port
+- Checks every move against per-servo limits before anything is sent
 
 Safety authority:
 - The cloud agent is not trusted to be the final safety authority
