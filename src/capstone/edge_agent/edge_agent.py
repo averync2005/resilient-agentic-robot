@@ -74,7 +74,7 @@ from openai import OpenAI, OpenAIError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # The arm (opened only when the arm is enabled)
-from capstone.arm_controller.arm_actions import DEFAULT_POSE_MS, ArmActions, parseAction
+from capstone.arm_controller.arm_actions import DEFAULT_POSE_MS, ArmActions
 from capstone.arm_controller.arm_driver import ArmError, openArm
 from capstone.arm_controller.poses import PoseError, loadPoses
 
@@ -280,6 +280,7 @@ def buildChatModel(settings: EdgeSettings) -> ChatOpenAI:
         base_url=settings.base_url,
         api_key="not-needed",
         model=settings.model,
+        temperature=0.0,  # Same request, same action (matters most for the arm's one-line replies)
         extra_body=thinkingOptions(settings)
     )
 
@@ -345,7 +346,7 @@ def buildArmGraph(chatModel: BaseChatModel, actions: ArmActions) -> CompiledStat
 
     - chatbot: Gemma answers, with the arm instructions merged into the system prompt
     - act: parses "POSE <name>" / "PRESS <name>" from the reply and runs it through the interlock
-    - A reply with no action passes through unchanged
+    - A reply with no action passes through, marked "(No arm action was taken.)"
 
     Args:
         chatModel: The model to answer with
@@ -377,10 +378,12 @@ def buildArmGraph(chatModel: BaseChatModel, actions: ArmActions) -> CompiledStat
         Run the action named in Gemma's reply, if there is one, and report the result
         """
 
-        request = parseAction(state["messages"][-1].text)
+        reply = state["messages"][-1].text
+        request = actions.readReply(reply)
 
+        # Saying so outright, so the cloud agent can't report a move that never happened
         if (request is None):
-            return {"messages": []}
+            return {"messages": [AIMessage(content=f"{reply}\n(No arm action was taken.)")]}
 
         action, name = request
         _, message = actions.run(action, name)

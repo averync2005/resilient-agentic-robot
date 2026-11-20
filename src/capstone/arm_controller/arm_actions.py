@@ -8,6 +8,7 @@ Interlock (S-1):
 
 Model output:
 - `parseAction()` pulls the first "POSE <name>" or "PRESS <name>" out of the model's reply
+- `ArmActions.readReply()` also accepts a reply that is only an approved name (Gemma sometimes answers just "home")
 - Parsed here instead of through llama-server's tool calling (Gemma 4's native tool-call format isn't reliably parsed there)
 """
 
@@ -119,6 +120,33 @@ class ArmActions:
                 return (False, f"REJECTED: {error}. Nothing was sent to the arm.")
             except ArmError as error:
                 return (False, f"ARM ERROR: {error}")
+
+    def readReply(self, text: str) -> tuple[str, str] | None:
+        """
+        Find the action in a model reply, including a reply that is only an approved pose or button name
+
+        Args:
+            text: The model's reply
+
+        Returns:
+            (action, name), or None if the reply names no action and isn't a bare approved name
+        """
+
+        request = parseAction(text)
+
+        if (request is not None):
+            return request
+
+        # Stripping quotes, backticks, and a trailing period (ex. "`home`." -> "home")
+        bareName = (text or "").strip().strip("`'\".").strip().lower()
+
+        if (bareName in self.library.poses):
+            return ("POSE", bareName)
+
+        if (bareName in self.library.buttons):
+            return ("PRESS", bareName)
+
+        return None
 
     def moveToPose(self, name: str) -> str:
         """

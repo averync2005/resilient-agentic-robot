@@ -322,15 +322,37 @@ def test_arm_graph_rejects_an_unapproved_pose_from_gemma(actions, fake):
 
 def test_arm_graph_passes_plain_answers_through(actions, fake):
     """
-    A reply with no action (ex. a status question) should come back unchanged, with nothing sent
+    A reply with no action (ex. a status question) should come back marked as taking no action, with nothing sent
     """
 
     graph = edge.buildArmGraph(FakeChatModel("I'm online."), actions)
 
     reply = asyncio.run(edge.generateReply(graph, edge.EdgeSettings(_env_file=None), "are you there?"))
 
-    assert (reply == "I'm online.")
+    assert (reply == "I'm online.\n(No arm action was taken.)")
     assert (fake.moves == [])
+
+
+def test_arm_graph_accepts_a_bare_approved_name(actions, fake):
+    """
+    Gemma sometimes replies with only the pose name ("home"), which should still run as POSE home
+    """
+
+    graph = edge.buildArmGraph(FakeChatModel("`home`."), actions)
+
+    reply = asyncio.run(edge.generateReply(graph, edge.EdgeSettings(_env_file=None), "move the arm home"))
+
+    assert (reply == "Gemma chose: POSE home\nMoved to pose 'home'")
+    assert (len(fake.moves) == 1)
+
+
+def test_read_reply_maps_a_bare_button_name_to_press(actions):
+    """
+    A reply that is only a button name should become PRESS, and an unapproved bare word should stay None
+    """
+
+    assert (actions.readReply("button_1") == ("PRESS", "button_1"))
+    assert (actions.readReply("dance") is None)
 
 
 def test_arm_graph_merges_instructions_into_one_system_message(actions):

@@ -164,6 +164,7 @@ async def askEdgeAgent(message: str) -> str:
 
     - Use this whenever the user wants to reach the edge agent, the Jetson, or the robot
     - The edge agent keeps no memory between calls, so include any context it needs in the message
+    - The arm only moved if the reply says "Moved to pose" or "Pressed" - report anything else (ex. "No arm action was taken", "REJECTED") as not moved, quoting the reply
     """
 
     try:
