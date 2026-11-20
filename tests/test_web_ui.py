@@ -9,8 +9,13 @@ Tests for web_ui.py's conversation helpers, Gradio window, and CLI entry points
 # Imports
 # ---------------------------------
 
+# Standard library
 import asyncio
+
+# Chat window library
 import gradio as gr
+
+# Code under test
 import capstone.cloud_agent.web_ui as ui
 
 

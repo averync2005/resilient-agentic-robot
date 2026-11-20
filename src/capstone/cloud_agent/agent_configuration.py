@@ -27,7 +27,10 @@ Edge agent connection:
 # Imports
 # ---------------------------------
 
+# Settings from .env
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Chat model type every provider returns
 from langchain_core.language_models.chat_models import BaseChatModel
 
 

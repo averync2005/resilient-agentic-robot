@@ -18,7 +18,8 @@ Configuration:
 
 LangGraph agent:
 - `buildGraph()` wraps Gemma (via LangChain's ChatOpenAI, pointed at llama-server) in a LangGraph graph
-- No tools yet - safety validation and ROS 2 tools register onto it later, the same way as the cloud agent's
+- No tools in the plain graph (`buildGraph()`), used when the arm isn't enabled
+- `buildArmGraph()` adds an "act" node: Gemma names one action ("POSE home", "PRESS button_a"), and `arm_actions.py` checks the name against poses.yaml before anything reaches the arm
 - Stateless: no checkpointer, so each `generateReply()` call starts a fresh conversation
 - Used by the A2A server in `edge_agent_server.py` to answer the cloud agent
 
@@ -29,6 +30,13 @@ Terminal chat:
 - Registered as the `edge-agent` CLI command in `pyproject.toml`
 - Run it with:
     uv run edge-agent
+
+Arm chat:
+- `armChat()` opens the arm, then runs a terminal loop through the arm graph (prints Gemma's chosen action and the result)
+- Lines starting with "/" skip the model (ex. "/pose home", "/press button_a"), as a manual fallback
+- Registered as the `edge-agent-arm` CLI command in `pyproject.toml`
+- Run it with:
+    uv run edge-agent-arm
 
 Speed check:
 - `check()` sends one fixed prompt and reports tokens/sec from llama-server's own timings
@@ -41,21 +49,34 @@ Speed check:
 # Imports
 # ---------------------------------
 
+# Standard library
+import asyncio
 import subprocess
 import sys
 import time
 import urllib.error
 import urllib.request
 from typing import Annotated, NoReturn
+
+# LangGraph agent around the local model
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.graph.state import CompiledStateGraph
-from openai import OpenAI, OpenAIError
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing_extensions import TypedDict
+
+# llama-server's OpenAI-compatible API (terminal chat and speed check)
+from openai import OpenAI, OpenAIError
+
+# Settings from .env
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# The arm (opened only when the arm is enabled)
+from capstone.arm_controller.arm_actions import ArmActions, parseAction
+from capstone.arm_controller.arm_driver import ArmError, openArm
+from capstone.arm_controller.poses import PoseError, loadPoses
 
 
 
@@ -103,6 +124,12 @@ class EdgeSettings(BaseSettings):
     tls_cert: str = "certs/edge.crt"  # Server certificate from `uv run make-certs`
 
     tls_key: str = "certs/edge.key"  # Private key for tls_cert
+
+    arm_enabled: bool = False  # Drive the xArm from edge-agent-serve (needs the arm plugged in over USB and poses.yaml)
+
+    poses_file: str = "poses.yaml"  # Approved named poses and buttons (taught with `uv run arm teach`)
+
+    pose_move_ms: int = 1500  # Duration of each move between poses, in milliseconds
 
 
 
@@ -288,6 +315,122 @@ def buildGraph(chatModel: BaseChatModel) -> CompiledStateGraph:
     return builder.compile()
 
 
+def armInstructions(actions: ArmActions) -> str:
+    """
+    Build the system-prompt addition that limits Gemma to naming one arm action
+
+    - Unapproved names should still be passed through, so the interlock (not the model) is what rejects them
+
+    Args:
+        actions: Supplies the approved pose and button names
+
+    Returns:
+        Text appended to the edge agent's system prompt
+    """
+
+    return (
+        "You control a robot arm through named actions only.\n"
+        "If the message asks the arm to move to a pose, reply with exactly one line: POSE <pose name>\n"
+        "If the message asks the arm to press a button, reply with exactly one line: PRESS <button name>\n"
+        "Use the names exactly as listed below. If the message names a pose or button that isn't listed, "
+        "still reply with POSE or PRESS and that name, so the safety check can reject it.\n"
+        "If the message isn't asking the arm to do anything, answer normally in one or two sentences.\n"
+        f"{actions.describe()}"
+    )
+
+
+def buildArmGraph(chatModel: BaseChatModel, actions: ArmActions) -> CompiledStateGraph:
+    """
+    Wire up the edge agent's graph with an "act" node that runs the action Gemma names
+
+    - chatbot: Gemma answers, with the arm instructions merged into the system prompt
+    - act: parses "POSE <name>" / "PRESS <name>" from the reply and runs it through the interlock
+    - A reply with no action passes through unchanged
+
+    Args:
+        chatModel: The model to answer with
+        actions: Runs approved actions on the arm
+
+    Returns:
+        A compiled LangGraph graph ready for `.ainvoke()`
+    """
+
+    instructions = armInstructions(actions)
+
+    def chatbot(state: EdgeState) -> EdgeState:
+        """
+        Run one chat-model turn with the arm instructions merged into the first system message
+        """
+
+        messages = list(state["messages"])
+
+        # One combined system message (Gemma's chat template expects a single one, first)
+        if (messages and isinstance(messages[0], SystemMessage)):
+            messages[0] = SystemMessage(content=f"{messages[0].content}\n\n{instructions}")
+        else:
+            messages.insert(0, SystemMessage(content=instructions))
+
+        return {"messages": [chatModel.invoke(messages)]}
+
+    def act(state: EdgeState) -> EdgeState:
+        """
+        Run the action named in Gemma's reply, if there is one, and report the result
+        """
+
+        request = parseAction(state["messages"][-1].text)
+
+        if (request is None):
+            return {"messages": []}
+
+        action, name = request
+        _, message = actions.run(action, name)
+
+        return {"messages": [AIMessage(content=f"Gemma chose: {action} {name}\n{message}")]}
+
+    builder = StateGraph(EdgeState)
+
+    builder.add_node(chatbot)
+    builder.add_node(act)
+
+    builder.add_edge(START, "chatbot")
+    builder.add_edge("chatbot", "act")
+    builder.add_edge("act", END)
+
+    return builder.compile()
+
+
+def openArmActions(settings: EdgeSettings) -> ArmActions:
+    """
+    Open the arm over USB and load the approved poses, exiting with the reason if either fails
+
+    Args:
+        settings: Supplies the poses file and move time
+
+    Returns:
+        ArmActions ready to run
+    """
+
+    try:
+        library = loadPoses(settings.poses_file)
+        arm = openArm()
+    except (ArmError, PoseError) as error:
+        print(f"[ERROR] {error}")
+        sys.exit(1)
+
+    actions = ArmActions(arm, library, settings.pose_move_ms)
+
+    # Reading the supply voltage doubles as a check that the board actually answers
+    try:
+        volts = arm.readBatteryVoltage()
+    except ArmError as error:
+        print(f"[ERROR] {error}")
+        sys.exit(1)
+
+    print(f"Arm connected (supply {volts:.2f} V)\n{actions.describe()}")
+
+    return actions
+
+
 async def generateReply(graph: CompiledStateGraph, settings: EdgeSettings, text: str) -> str:
     """
     Answer one message with the edge agent's graph, starting from a fresh conversation
@@ -404,6 +547,76 @@ def main() -> None:
             continue
 
         messages.append({"role": "assistant", "content": reply})
+
+
+
+
+# ---------------------------------
+# Arm chat
+# ---------------------------------
+
+def runDirectCommand(actions: ArmActions, line: str) -> str:
+    """
+    Run a "/pose <name>" or "/press <name>" line without the model (manual fallback)
+
+    Args:
+        actions: Runs approved actions on the arm
+        line: The typed line, starting with "/"
+
+    Returns:
+        The result message, or usage help for anything else
+    """
+
+    words = line[1:].split()
+
+    if ((len(words) != 2) or (words[0].lower() not in ("pose", "press"))):
+        return "Direct commands: /pose <name>, /press <name>"
+
+    return actions.run(words[0].upper(), words[1])[1]
+
+
+def armChat() -> None:
+    """
+    Open the arm, activate the local model server, then run a terminal loop through the arm graph
+
+    - Type a request (ex. "go to home", "press button 1") and Gemma picks the action
+    - Lines starting with "/" skip the model (ex. "/pose home")
+    - Type `exit`, or press Ctrl+D / Ctrl+C, to quit
+    """
+
+    settings = EdgeSettings()
+    actions = openArmActions(settings)
+    activateServer(settings)
+
+    graph = buildArmGraph(buildChatModel(settings), actions)
+
+    print("Edge agent ready with the arm (local Gemma 4). Type 'exit' to quit.\n")
+
+    while (True):
+        try:
+            userMessage = input("you> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+
+        if (userMessage.lower() in ("exit", "quit")):
+            break
+
+        if (not userMessage):
+            continue
+
+        if (userMessage.startswith("/")):
+            print(f"arm> {runDirectCommand(actions, userMessage)}")
+            continue
+
+        try:
+            reply = asyncio.run(generateReply(graph, settings, userMessage))
+        except OpenAIError as error:
+            # A failed turn (server restarted mid-reply, context full) shouldn't end the session
+            print(f"[ERROR] Model call failed: {error}")
+            continue
+
+        print(f"edge> {reply}")
 
 
 

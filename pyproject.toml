@@ -23,6 +23,7 @@ dependencies = [
     "openai>=3.15.0",
     "pydantic-settings>=2.15.0",
     "python-dotenv>=1.2.3",
+    "pyyaml>=6.0",
     "uvicorn>=0.30",
     "xarm>=0.0.4",
 ]
@@ -33,6 +34,8 @@ cloud-agent-dev = "capstone.cloud_agent.web_ui:dev"
 edge-agent = "capstone.edge_agent.edge_agent:main"
 edge-agent-check = "capstone.edge_agent.edge_agent:check"
 edge-agent-serve = "capstone.edge_agent.edge_agent_server:serve"
+edge-agent-arm = "capstone.edge_agent.edge_agent:armChat"
+arm = "capstone.arm_controller.arm_cli:main"
 make-certs = "capstone.certificates:main"
 
 [build-system]

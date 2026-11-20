@@ -24,10 +24,16 @@ Running it:
 # Imports
 # ---------------------------------
 
+# Standard library
 import logging
 import sys
 from pathlib import Path
+
+# HTTPS server
 import uvicorn
+from starlette.applications import Starlette
+
+# A2A server pieces
 from a2a.helpers import new_text_message
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
@@ -35,9 +41,10 @@ from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.routes import create_agent_card_routes, create_jsonrpc_routes
 from a2a.server.tasks import InMemoryTaskStore
 from a2a.utils.errors import UnsupportedOperationError
+
+# The edge agent that answers each message
 from langgraph.graph.state import CompiledStateGraph
-from starlette.applications import Starlette
-from capstone.edge_agent.edge_agent import EdgeSettings, activateServer, buildChatModel, buildGraph, generateReply
+from capstone.edge_agent.edge_agent import EdgeSettings, activateServer, buildArmGraph, buildChatModel, buildGraph, generateReply, openArmActions
 from capstone.edge_agent.edge_agent_card import buildAgentCard
 
 
@@ -173,9 +180,14 @@ def serve() -> None:
 
     settings = EdgeSettings()
     requireCertFiles(settings)
+
+    # Opening the arm before loading the model (a missing arm or bad poses file fails fast)
+    actions = openArmActions(settings) if settings.arm_enabled else None
     activateServer(settings)
 
-    app = buildApp(settings, buildGraph(buildChatModel(settings)))
+    chatModel = buildChatModel(settings)
+    graph = buildArmGraph(chatModel, actions) if (actions is not None) else buildGraph(chatModel)
+    app = buildApp(settings, graph)
 
     print(f"Edge agent A2A server listening on https://{settings.a2a_host}:{settings.a2a_port} (advertised as {settings.public_url})")
 

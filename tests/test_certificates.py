@@ -9,11 +9,16 @@ Tests for certificates.py's project CA and server certificate generation
 # Imports
 # ---------------------------------
 
+# Standard library
 import ipaddress
 import ssl
 import sys
+
+# Checking the issued certificates
 from cryptography import x509
 from cryptography.x509.verification import PolicyBuilder, Store
+
+# Code under test
 import capstone.certificates as certificates
 
 

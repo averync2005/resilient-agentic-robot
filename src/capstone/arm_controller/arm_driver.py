@@ -31,6 +31,7 @@ Library:
 # Imports
 # ---------------------------------
 
+# Hiwonder's controller library (talks to the board over USB HID)
 import xarm
 
 

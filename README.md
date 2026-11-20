@@ -62,6 +62,11 @@ src/capstone/
         __init__.py             Subpackage docstring listing the modules below.
         arm_driver.py           ArmDriver: moves, reads, and stops the xArm 1S's six servos over USB, in
                                 degrees, with per-servo limits (SERVO_LIMITS). openArm() connects to it.
+        poses.py                Loads and saves poses.yaml (named poses and button sequences), checking
+                                every angle against SERVO_LIMITS.
+        arm_actions.py          The named-pose interlock: runs "POSE <name>" / "PRESS <name>" only for
+                                names in poses.yaml. parseAction() reads them out of Gemma's reply.
+        arm_cli.py              The `arm` command (status, move, pose, press, teach).
 tests/                        One pytest file per module above (test_<module>.py).
 pyproject.toml                Project metadata, dependency list, and the six CLI commands, managed by uv.
 .env.example                  Template for the .env file you create locally. .env itself is git-ignored,
@@ -331,6 +336,21 @@ sudo udevadm trigger
 ```
 
 Then check that your user is in `plugdev` with `groups`. If it isn't, run `sudo usermod -aG plugdev $USER` and log out and back in. Unplug and replug the arm, then check with `lsusb -d 0483:5750` (the board should be listed) and `uv run python -c "import hid; print(hid.enumerate(0x0483, 0x5750))"` (should print one entry, not `[]`).
+
+### Named poses, the `arm` command, and the edge agent
+
+Approved poses and buttons live in `poses.yaml` at the repo root. Only names in that file can reach the arm. Every angle in it is checked against `SERVO_LIMITS` when it loads.
+
+| Command | What it does |
+|---|---|
+| `uv run arm status` | Supply voltage and every servo's angle |
+| `uv run arm move 6 20` | One servo move, printed as ACCEPTED or REJECTED (`uv run arm move 6 150` is rejected and sends nothing) |
+| `uv run arm teach` | Teach poses by hand: `free 3 4 5` frees those servos, you position the arm, `save button_a_above` records it. `button button_a button_a_above button_a_press button_a_above` saves a press sequence |
+| `uv run arm pose home` / `uv run arm press button_a` | Run a pose or button directly, no model |
+| `uv run edge-agent-arm` | Terminal chat where Gemma picks the action ("go to home", "press button 1"). Lines starting with `/` skip the model (`/pose home`) |
+| `EDGE_ARM_ENABLED=true uv run edge-agent-serve` | The A2A server with the arm, so cloud agent requests can move it |
+
+Gemma never sends angles. It replies with one line, `POSE <name>` or `PRESS <name>`, and `arm_actions.py` looks the name up in `poses.yaml` before anything is sent. An unapproved name comes back as `REJECTED` with nothing sent. This is parsed by our code rather than through llama-server's tool calling, because Gemma 4's native tool-call format isn't reliably parsed there.
 
 ## Running the tests
 

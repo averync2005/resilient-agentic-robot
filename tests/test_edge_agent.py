@@ -10,13 +10,18 @@ Tests for edge_agent.py's settings, model-server activation, LangGraph agent, te
 # Imports
 # ---------------------------------
 
+# Standard library
 import asyncio
 import subprocess
 import urllib.error
 from types import SimpleNamespace
+
+# Test framework, canned model replies, and simulated server errors
 import pytest
 from langchain_core.messages import AIMessage
 from openai import APIConnectionError
+
+# Code under test
 import capstone.edge_agent.edge_agent as edge
 
 

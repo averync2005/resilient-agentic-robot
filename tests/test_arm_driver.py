@@ -9,8 +9,13 @@ Tests for arm_driver.py's unit conversion, limit checks, and commands to the arm
 # Imports
 # ---------------------------------
 
+# Standard library
 import math
+
+# Test framework
 import pytest
+
+# Code under test
 import capstone.arm_controller.arm_driver as arm_driver
 from capstone.arm_controller.arm_driver import (
     ArmCommunicationError,

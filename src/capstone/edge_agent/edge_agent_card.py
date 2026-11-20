@@ -13,8 +13,11 @@ Agent card:
 # Imports
 # ---------------------------------
 
+# A2A agent card types
 from a2a.types import AgentCapabilities, AgentCard, AgentInterface, AgentSkill
 from a2a.utils.constants import PROTOCOL_VERSION_CURRENT, TransportProtocol
+
+# Edge settings (the advertised address)
 from capstone.edge_agent.edge_agent import EdgeSettings
 
 

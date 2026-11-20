@@ -23,12 +23,17 @@ Development:
 # Imports
 # ---------------------------------
 
+# Standard library
 import os
 import subprocess
 import time
 import uuid
 from pathlib import Path
+
+# Chat window
 import gradio as gr
+
+# The cloud agent the window talks to
 from capstone.cloud_agent.cloud_agent import graph, logger
 
 

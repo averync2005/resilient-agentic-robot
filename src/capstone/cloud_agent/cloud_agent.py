@@ -23,18 +23,23 @@ Web window:
 # Imports
 # ---------------------------------
 
+# Standard library
 import logging
 import os
 import ssl
 import time
 from pathlib import Path
 from typing import Annotated
+
+# A2A client (reaching the edge agent over HTTPS)
 import httpx
 from a2a.client import A2ACardResolver, ClientConfig, create_client
 from a2a.client.errors import A2AClientError
 from a2a.helpers import get_stream_response_text, new_text_message
 from a2a.types import Role, SendMessageRequest
 from a2a.utils.errors import A2AError
+
+# LangGraph agent and its tools
 from langchain_core.tools import tool
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
@@ -42,6 +47,8 @@ from langgraph.graph.message import add_messages
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 from typing_extensions import TypedDict
+
+# Project settings and chat model
 from capstone.cloud_agent.agent_configuration import getSettings, getChatModel
 
 

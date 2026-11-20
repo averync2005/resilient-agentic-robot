@@ -10,14 +10,23 @@ Tests for edge_agent_server.py's A2A executor, app, and serve() entry point
 # Imports
 # ---------------------------------
 
+# Standard library
 import asyncio
+
+# Test framework and HTTP client
 import httpx
 import pytest
+
+# A2A client side, for talking to the server under test
 from a2a.client import ClientConfig, create_client
 from a2a.helpers import get_stream_response_text, new_text_message
 from a2a.types import Role, SendMessageRequest
 from a2a.utils.errors import A2AError
+
+# Canned model replies
 from langchain_core.messages import AIMessage
+
+# Code under test
 import capstone.edge_agent.edge_agent_server as server
 from capstone.edge_agent.edge_agent import EdgeSettings, buildGraph
 

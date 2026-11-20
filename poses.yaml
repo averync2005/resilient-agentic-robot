@@ -1,0 +1,11 @@
+# Named poses (degrees from each servo's center, servos 1 gripper to 6 base) and button sequences
+# Replace these by teaching on the real arm: uv run arm teach
+poses:
+  home:
+    1: 0.0
+    2: 0.0
+    3: 0.0
+    4: 0.0
+    5: 0.0
+    6: 0.0
+buttons: {}

@@ -31,10 +31,13 @@ Running it (from the project root, on whichever machine holds the CA):
 # Imports
 # ---------------------------------
 
+# Standard library
 import argparse
 import datetime
 import ipaddress
 from pathlib import Path
+
+# Building and signing X.509 certificates
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec

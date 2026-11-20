@@ -13,13 +13,18 @@ Tests for cloud_agent.py's graph and its A2A connection to the edge agent
 # Imports
 # ---------------------------------
 
+# Standard library
 import asyncio
 import importlib
 import ssl
 from types import SimpleNamespace
+
+# HTTP, A2A errors, and canned model replies
 import httpx
 from a2a.client.errors import A2AClientError, A2AClientTimeoutError
 from langchain_core.messages import AIMessage, HumanMessage
+
+# Code under test, plus a real edge agent app to talk to
 import capstone.cloud_agent.cloud_agent as agent
 from capstone.edge_agent.edge_agent import EdgeSettings, buildGraph as buildEdgeGraph
 from capstone.edge_agent.edge_agent_server import buildApp as buildEdgeApp
