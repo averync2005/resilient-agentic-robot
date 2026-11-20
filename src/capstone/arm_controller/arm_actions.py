@@ -27,6 +27,16 @@ from capstone.arm_controller.poses import PoseError, PoseLibrary
 
 
 # ---------------------------------
+# Move timing
+# ---------------------------------
+
+# Default time for a full-arm move between poses (slower moves draw less peak current from the 1 A supply)
+DEFAULT_POSE_MS = 2500
+
+
+
+
+# ---------------------------------
 # Reading the model's reply
 # ---------------------------------
 

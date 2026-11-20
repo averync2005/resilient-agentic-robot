@@ -74,7 +74,7 @@ from openai import OpenAI, OpenAIError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # The arm (opened only when the arm is enabled)
-from capstone.arm_controller.arm_actions import ArmActions, parseAction
+from capstone.arm_controller.arm_actions import DEFAULT_POSE_MS, ArmActions, parseAction
 from capstone.arm_controller.arm_driver import ArmError, openArm
 from capstone.arm_controller.poses import PoseError, loadPoses
 
@@ -129,7 +129,7 @@ class EdgeSettings(BaseSettings):
 
     poses_file: str = "poses.yaml"  # Approved named poses and buttons (taught with `uv run arm teach`)
 
-    pose_move_ms: int = 1500  # Duration of each move between poses, in milliseconds
+    pose_move_ms: int = DEFAULT_POSE_MS  # Duration of each move between poses, in milliseconds (2500 by default)
 
 
 

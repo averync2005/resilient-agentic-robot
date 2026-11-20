@@ -22,7 +22,7 @@ import sys
 from pathlib import Path
 
 # The arm, its approved poses, and the actions that run them
-from capstone.arm_controller.arm_actions import ArmActions
+from capstone.arm_controller.arm_actions import DEFAULT_POSE_MS, ArmActions
 from capstone.arm_controller.arm_driver import SERVO_NAMES, ArmDriver, ArmError, openArm
 from capstone.arm_controller.poses import PoseError, PoseLibrary, checkPoseAngles, loadPoses
 
@@ -34,7 +34,6 @@ from capstone.arm_controller.poses import PoseError, PoseLibrary, checkPoseAngle
 # ---------------------------------
 
 DEFAULT_POSES_FILE = "poses.yaml"
-DEFAULT_POSE_MS = 1500  # Gentle enough for a full-arm move between poses
 
 TEACH_HELP = """Commands:
   show              print every servo's angle
