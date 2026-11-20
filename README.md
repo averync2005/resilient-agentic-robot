@@ -13,7 +13,7 @@ The system splits its reasoning across two tiers that talk to each other over a 
 | Job | Turn a natural-language command into an ordered sequence of robot actions | Receive that sequence, check that it is safe, and move the robot arm via ROS 2 |
 | Without internet | Unavailable | Keeps working (the local model needs no network) |
 
-Both agents are LangGraph agents. They talk to each other over A2A (Agent-to-Agent) protocol, using Google's `a2a-sdk`, over HTTPS on the USB-C link between the laptop and the Jetson. See "Connecting the two agents" below. For now the A2A "contract" is plain text: the cloud agent sends a message and the edge agent replies. The structured robot-action contract will be documented here once it exists.
+Both agents are LangGraph agents. They talk to each other over A2A (Agent-to-Agent) protocol, using Google's `a2a-sdk`, over HTTPS on the USB-C link between the laptop and the Jetson. See "Connecting the two agents" below. For now the A2A "contract" is plain text: the cloud agent sends a natural-language message, and the edge agent replies (moving the arm first if the message asks for an approved pose or button). The structured robot-action contract will be documented here once it exists.
 
 ## What this code does, in plain English
 
@@ -21,8 +21,9 @@ Both agents are LangGraph agents. They talk to each other over A2A (Agent-to-Age
 
 - **Cloud agent:** a person types into a web chat window, and a LangGraph-backed agent running on Gemini replies, with memory of the conversation so far. When the person asks for the edge agent, the Jetson, or the robot, Gemini calls its `askEdgeAgent` tool, which sends a message to the edge agent over A2A and returns its reply.
 - **Edge agent:** runs an HTTPS A2A server on the Jetson (`edge-agent-serve`). Each incoming message is answered by Gemma 4 through a small LangGraph graph, with no memory between messages. A terminal chat (`edge-agent`) is still there for talking to Gemma directly on the Jetson.
+- **Arm:** with `EDGE_ARM_ENABLED=true`, each A2A message can move the xArm 1S by one named action, a pose (ex. `home`) or a button press (ex. `button_a`). Gemma picks the action, and only names in `poses.yaml` reach the arm. See "The robot arm (xArm 1S)" below.
 
-Neither agent generates robot action plans or moves a robot yet. Those come later in the two-semester schedule (see the project proposal for the full timeline).
+Multi-step action plans, ROS 2, and the offline fallback come later in the two-semester schedule (see the project proposal for the full timeline).
 
 **The finished picture:** the cloud agent turns a command into an ordered list of robot actions from a fixed, pre-approved vocabulary. That vocabulary is a set of named poses like `switch_1`, `button_2`, `home`, and `safe_retract`, and the robot is never told to do anything outside it. The cloud agent sends that plan to the Jetson over A2A, and the edge agent (not the cloud agent) validates and executes it. The cloud agent does not trust itself to be the final safety check. When the cloud is unreachable, the edge agent's local model is the fallback.
 
@@ -65,7 +66,7 @@ src/capstone/
         poses.py                Loads and saves poses.yaml (named poses and button sequences), checking
                                 every angle against SERVO_LIMITS.
         arm_actions.py          The named-pose interlock: runs "POSE <name>" / "PRESS <name>" only for
-                                names in poses.yaml. parseAction() reads them out of Gemma's reply.
+                                names in poses.yaml. ArmActions.readReply() reads them out of Gemma's reply.
         arm_cli.py              The `arm` command (status, move, pose, press, teach).
 tests/                        One pytest file per module above (test_<module>.py).
 pyproject.toml                Project metadata, dependency list, and the six CLI commands, managed by uv.
@@ -318,10 +319,10 @@ arm.stop()
 
 - **Units:** degrees from each servo's center, -120 to 120. Servo IDs are 1 gripper, 2 wrist rotation, 3 wrist, 4 elbow, 5 shoulder, 6 base.
 - **Limits:** every move is checked against `SERVO_LIMITS` before anything is sent. They start at ±110 degrees for every servo, 10 degrees inside the physical range. Narrow each one once it's measured on the real arm.
-- **Move time:** `durationMs` is how long the move takes to arrive (1000 ms by default). Longer is slower and gentler on the arm and the supply.
+- **Move time:** `durationMs` is how long the move takes to arrive (1000 ms by default for the driver). Longer is slower and gentler on the arm and the supply. Pose moves through the `arm` command and the edge agent take 2500 ms (`DEFAULT_POSE_MS` in `arm_actions.py`, or `EDGE_POSE_MOVE_MS` in `.env`).
 - **`stop()`** holds every servo where it is. **`servosOff()`** makes the arm go limp, so support it first.
-- Close Hiwonder's PC software first. Only one program can have the board open at a time.
-- **On the Jetson (Linux),** a new USB device is readable only by root by default, so `openArm()` fails with "open failed". A udev rule (below) gives the `plugdev` group read/write access to the board. It's untested so far.
+- Only one program can have the board open at a time: close Hiwonder's PC software, and stop `edge-agent-serve` or `edge-agent-arm` before running `uv run arm ...`.
+- **On the Jetson (Linux),** a new USB device is readable only by root by default, so `openArm()` fails with "open failed". A udev rule (below) gives the `plugdev` group read/write access to the board. Applied and working on the team Jetson since 11/19/26.
 
 **One-time setup on the Jetson: the udev rule.** udev is the Linux service that creates a device file in `/dev` each time something is plugged in. A rule file tells it which permissions to give a matching device. The `xarm` package opens the board through libusb (a library for raw USB access) rather than `/dev/hidraw*`, so the rule covers both device types:
 
@@ -347,10 +348,12 @@ Approved poses and buttons live in `poses.yaml` at the repo root. Only names in 
 | `uv run arm move 6 20` | One servo move, printed as ACCEPTED or REJECTED (`uv run arm move 6 150` is rejected and sends nothing) |
 | `uv run arm teach` | Teach poses by hand: `free 3 4 5` frees those servos, you position the arm, `save button_a_above` records it. `button button_a button_a_above button_a_press button_a_above` saves a press sequence |
 | `uv run arm pose home` / `uv run arm press button_a` | Run a pose or button directly, no model |
-| `uv run edge-agent-arm` | Terminal chat where Gemma picks the action ("go to home", "press button 1"). Lines starting with `/` skip the model (`/pose home`) |
+| `uv run edge-agent-arm` | Terminal chat where Gemma picks the action ("go to home", "press button A"). Lines starting with `/` skip the model (`/pose home`) |
 | `EDGE_ARM_ENABLED=true uv run edge-agent-serve` | The A2A server with the arm, so cloud agent requests can move it |
 
-Gemma never sends angles. It replies with one line, `POSE <name>` or `PRESS <name>`, and `arm_actions.py` looks the name up in `poses.yaml` before anything is sent. An unapproved name comes back as `REJECTED` with nothing sent. This is parsed by our code rather than through llama-server's tool calling, because Gemma 4's native tool-call format isn't reliably parsed there.
+Gemma never sends angles. It replies with one line, `POSE <name>` or `PRESS <name>`, and `arm_actions.py` looks the name up in `poses.yaml` before anything is sent. An unapproved name comes back as `REJECTED` with nothing sent. A reply that is only an approved name (ex. `home`) also counts, since Gemma sometimes drops the keyword. Any other reply ends with "(No arm action was taken.)", and the cloud agent's `askEdgeAgent` tool tells Gemini the arm only moved if the reply says "Moved to pose" or "Pressed". This is parsed by our code rather than through llama-server's tool calling, because Gemma 4's native tool-call format isn't reliably parsed there. The edge agent's model runs at temperature 0, so the same request gets the same action.
+
+The demo runbook (setup, demo order, and fixes for problems hit during testing) is in the team's ECE 257 Google Doc, Robotic Arm tab, "Full End-to-End Demo Guide".
 
 ## Running the tests
 
@@ -365,7 +368,7 @@ No test makes a live network call or needs the arm. Model, docker, HTTP, and arm
 
 ## Why Gemini for the cloud agent?
 
-Google AI Studio has a free tier, which matters for a two-person capstone budget. Its daily free-tier request quota is easy to burn through while testing. A `RESOURCE_EXHAUSTED` error means the quota ran out, not that the code has a bug. Nothing in the design is Gemini-specific: see `cloud_agent/agent_configuration.py` for how a second provider would be added, per the project's "model-agnostic" requirement.
+Google AI Studio has a free tier, which matters for a two-person capstone budget. Its daily free-tier request quota is easy to burn through while testing. A `RESOURCE_EXHAUSTED` error means the quota ran out, not that the code has a bug. A `503 UNAVAILABLE` error means the model is overloaded on Google's side: switch `LLM_MODEL` in `.env` (ex. `gemini-3.5-flash-lite`, which worked when `gemini-3.5-flash` was overloaded on 11/20/26) and restart the cloud agent. Nothing in the design is Gemini-specific: see `cloud_agent/agent_configuration.py` for how a second provider would be added, per the project's "model-agnostic" requirement.
 
 ## Adding a new dependency
 

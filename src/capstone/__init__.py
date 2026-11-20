@@ -10,19 +10,20 @@ Package layout:
 
 Cloud agent (`cloud_agent/`):
 - Runs on a laptop for now (eventually an always-on cloud host), backed by a hosted LLM (currently Google Gemini)
-- Takes a natural-language command and turns it into an ordered sequence of robot actions
-- Sends that sequence to the edge agent over A2A
+- Takes a natural-language command and passes robot requests to the edge agent over A2A (`askEdgeAgent`)
+- Planned: turning a command into an ordered sequence of named robot actions
 
 Edge agent (`edge_agent/`):
 - Runs on an NVIDIA Jetson Orin Nano connected to the physical robot arm
 - Backed by Gemma 4 E2B running locally on the Jetson's GPU (keeps working without internet)
 - Receives commands from the cloud agent
-- Validates them against safety rules before any hardware moves
-- Executes them via ROS 2
+- Gemma names one action (a pose or a button press), and only names in poses.yaml are sent to the arm
+- Moves the arm directly through `arm_controller/` for now (ROS 2 Actions planned)
 
 Arm controller (`arm_controller/`):
 - Drives the Hiwonder xArm 1S over its controller board's micro-USB port
 - Checks every move against per-servo limits before anything is sent
+- Named poses and button sequences come from poses.yaml (taught by hand with `uv run arm teach`)
 
 Safety authority:
 - The cloud agent is not trusted to be the final safety authority

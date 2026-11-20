@@ -4,7 +4,7 @@ Cloud agent conversational graph, plus the A2A connection it uses to reach the e
 Graph structure:
 - A LangGraph StateGraph with a "chatbot" node and a "tools" node
 - The chatbot node calls the chat model from `agent_configuration.py/getChatModel()`
-- The only tool so far is `askEdgeAgent`, which forwards a message to the edge agent over A2A
+- The only tool so far is `askEdgeAgent`, which forwards a message to the edge agent over A2A (including arm requests, which the edge agent runs)
 - The chat model decides on its own when to call it, the same way it would any other tool
 - Conversation history persists per conversation via a MemorySaver checkpointer, keyed by a thread id
 

@@ -345,7 +345,7 @@ def buildArmGraph(chatModel: BaseChatModel, actions: ArmActions) -> CompiledStat
     Wire up the edge agent's graph with an "act" node that runs the action Gemma names
 
     - chatbot: Gemma answers, with the arm instructions merged into the system prompt
-    - act: parses "POSE <name>" / "PRESS <name>" from the reply and runs it through the interlock
+    - act: reads "POSE <name>" / "PRESS <name>" (or a bare approved name) from the reply and runs it through the interlock
     - A reply with no action passes through, marked "(No arm action was taken.)"
 
     Args:
